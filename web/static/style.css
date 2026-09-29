@@ -1,0 +1,146 @@
+:root {
+	--bg: #f4f5f7;
+	--surface: #ffffff;
+	--text: #1f2430;
+	--muted: #6b7280;
+	--border: #e5e7eb;
+	--primary: #4f46e5;
+	--primary-hover: #4338ca;
+	--danger: #dc2626;
+	--danger-hover: #b91c1c;
+	--radius: 10px;
+	--shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	padding: 2.5rem 1.5rem;
+	background: var(--bg);
+	color: var(--text);
+	font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	line-height: 1.5;
+}
+
+h1 {
+	max-width: 640px;
+	margin: 0 auto 1.5rem;
+	font-size: 1.75rem;
+	font-weight: 700;
+}
+
+section {
+	max-width: 640px;
+	margin: 0 auto 1.5rem;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	padding: 1.5rem;
+}
+
+h2 {
+	margin: 0 0 1rem;
+	font-size: 1.1rem;
+	font-weight: 600;
+	color: var(--muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+li {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.75rem 0;
+	border-bottom: 1px solid var(--border);
+}
+
+li:last-child {
+	border-bottom: none;
+}
+
+li > *:first-child {
+	flex: 1;
+	overflow-wrap: anywhere;
+}
+
+li a {
+	font-size: 0.85rem;
+	font-weight: 600;
+	text-decoration: none;
+	padding: 0.35rem 0.7rem;
+	border-radius: 6px;
+	white-space: nowrap;
+}
+
+li a[href^="/edit/"] {
+	color: var(--primary);
+	background: rgba(79, 70, 229, 0.1);
+}
+
+li a[href^="/edit/"]:hover {
+	background: rgba(79, 70, 229, 0.18);
+}
+
+li a[href^="/delete/"] {
+	color: var(--danger);
+	background: rgba(220, 38, 38, 0.1);
+}
+
+li a[href^="/delete/"]:hover {
+	background: rgba(220, 38, 38, 0.18);
+}
+
+form div {
+	margin-bottom: 1rem;
+}
+
+label {
+	display: block;
+	margin-bottom: 0.35rem;
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--muted);
+}
+
+input[type="text"] {
+	width: 100%;
+	padding: 0.6rem 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	font-size: 1rem;
+	background: var(--bg);
+	color: var(--text);
+}
+
+input[type="text"]:focus {
+	outline: none;
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+input[type="submit"] {
+	border: none;
+	border-radius: 6px;
+	padding: 0.6rem 1.25rem;
+	font-size: 0.95rem;
+	font-weight: 600;
+	color: #fff;
+	background: var(--primary);
+	cursor: pointer;
+}
+
+input[type="submit"]:hover {
+	background: var(--primary-hover);
+}

@@ -1,0 +1,4 @@
+bin/
+out/
+*.db
+coverage.out

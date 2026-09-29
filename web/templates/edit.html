@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<title>Edit Task</title>
+	<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+	<h1>Edit Task</h1>
+	<form method="GET">
+		<input type="hidden" name="id" value="{{.ID}}">
+		<div>
+			<label for="ftitle">Title:</label>
+			<input type="text" id="ftitle" name="ftitle" value="{{.Task.Title}}" required>
+		</div>
+		<div>
+			<label for="fdescription">Description:</label>
+			<input type="text" id="fdescription" name="fdescription" value="{{.Task.Description}}" required>
+		</div>
+		<div>
+			<input type="submit" value="Save">
+		</div>
+	</form>
+</body>
+</html>
