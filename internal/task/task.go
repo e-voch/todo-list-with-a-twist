@@ -1,9 +1,9 @@
 package task
 
 type Task struct {
-	ID          int
-	Title       string
-	Description string
+	ID          int    `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type Store interface {
@@ -12,4 +12,17 @@ type Store interface {
 	Delete(id int) error
 	Get(id int) (Task, error)
 	List() ([]Task, error)
+}
+
+type EventType string
+
+const (
+	EventCreated EventType = "created"
+	EventEdited  EventType = "edited"
+	EventDeleted EventType = "deleted"
+)
+
+type EventMessage struct {
+	Type EventType `json:"type"`
+	Task Task      `json:"task"`
 }

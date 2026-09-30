@@ -1,4 +1,4 @@
-.PHONY: help build run test coverage cover
+.PHONY: help build run test coverage cover format
 
 help:
 	@echo "Available targets:"
@@ -7,6 +7,7 @@ help:
 	@echo "  test      run tests (bypasses cache)"
 	@echo "  coverage  generate coverage.out"
 	@echo "  cover     generate coverage and open the HTML report"
+	@echo "  format    format code"
 
 build:
 	go build -o bin/todo ./cmd/todo
@@ -22,3 +23,6 @@ coverage:
 
 cover: coverage
 	go tool cover -html=coverage.out
+
+format:
+	go fmt ./...
