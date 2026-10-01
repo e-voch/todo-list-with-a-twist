@@ -3,12 +3,14 @@ package task
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestEventMessageJSONRoundTrip(t *testing.T) {
 	want := EventMessage{
 		Type: EventCreated,
-		Task: Task{Title: "buy milk", Description: "2 litres"},
+		Task: Task{ID: uuid.Must(uuid.NewV7()), Title: "buy milk", Description: "2 litres"},
 	}
 
 	b, err := json.Marshal(want)

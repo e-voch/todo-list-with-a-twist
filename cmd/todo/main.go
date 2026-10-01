@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"todo/internal/queue"
 	"todo/internal/server"
 	"todo/internal/storage"
 	"todo/internal/task"
@@ -15,6 +16,8 @@ func main() {
 	storeType := flag.String("store", "sqlite", "storage backend to use: \"sqlite\", \"memory\", or \"redis\"")
 	dbPath := flag.String("db", "tasks.db", "path to the sqlite database file (used when -store=sqlite)")
 	redisAddr := flag.String("redis-addr", "localhost:6379", "redis server address (used when -store=redis)")
+	brokers := flag.String("brokers", "localhost:9092", "kafka bootstrap servers")
+	topic := flag.String("topic", "tasks", "kafka topic for task events")
 	flag.Parse()
 
 	var store task.Store
@@ -40,8 +43,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	producer, err := queue.NewProducer(*brokers, *topic)
+	if err != nil {
+		slog.Error("failed to create producer", "err", err)
+		os.Exit(1)
+	}
+	defer producer.Close()
+
 	slog.Info("Server is running on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", server.NewHandler(store)); err != nil {
+	if err := http.ListenAndServe(":8080", server.NewHandler(store, producer)); err != nil {
 		slog.Error("server failed", "err", err)
 		os.Exit(1)
 	}

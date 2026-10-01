@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"todo/internal/storage"
 	"todo/internal/task"
 )
@@ -39,10 +41,11 @@ func Test_faviconHandler(t *testing.T) {
 
 func Test_homeHandler_Create(t *testing.T) {
 	store := storage.NewMemoryStore()
+	pub := &fakePublisher{}
 	req := httptest.NewRequest(http.MethodGet, "/?ftitle=Buy&fdescription=Milk", nil)
 	rec := httptest.NewRecorder()
 
-	homeHandler(store)(rec, req)
+	homeHandler(store, pub)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -51,28 +54,41 @@ func Test_homeHandler_Create(t *testing.T) {
 		t.Errorf("redirect = %q, want %q", loc, "/")
 	}
 
+	if len(pub.events) != 1 {
+		t.Fatalf("published %d events, want 1", len(pub.events))
+	}
+	got := pub.events[0]
+	if got.Task.ID.Version() != 7 {
+		t.Errorf("published task ID %s is version %d, want a UUIDv7", got.Task.ID, got.Task.ID.Version())
+	}
+	want := task.EventMessage{
+		Type: task.EventCreated,
+		Task: task.Task{ID: got.Task.ID, Title: "Buy", Description: "Milk"},
+	}
+	if got != want {
+		t.Errorf("published event = %v, want %v", pub.events[0], want)
+	}
+
+	// The worker writes the store now, not the handler.
 	tasks, err := store.List()
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
-	if len(tasks) != 1 {
-		t.Fatalf("Store has %d tasks, want 1", len(tasks))
-	}
-	if tasks[0].Title != "Buy" || tasks[0].Description != "Milk" {
-		t.Errorf("created task = %v, want title %q, description %q", tasks[0], "Buy", "Milk")
+	if len(tasks) != 0 {
+		t.Errorf("store has %d tasks, want 0", len(tasks))
 	}
 }
 
 func Test_homeHandler_List(t *testing.T) {
 	store := storage.NewMemoryStore()
-	if _, err := store.Create("Buy", "Milk"); err != nil {
+	if err := store.Create(uuid.Must(uuid.NewV7()), "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
-	homeHandler(store)(rec, req)
+	homeHandler(store, &fakePublisher{})(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -86,15 +102,16 @@ func Test_homeHandler_List(t *testing.T) {
 
 func Test_deleteHandler(t *testing.T) {
 	store := storage.NewMemoryStore()
-	id, err := store.Create("Buy", "Milk")
-	if err != nil {
+	id := uuid.Must(uuid.NewV7())
+	if err := store.Create(id, "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/delete/?id=%d", id), nil)
+	pub := &fakePublisher{}
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/delete/?id=%s", id), nil)
 	rec := httptest.NewRecorder()
 
-	deleteHandler(store)(rec, req)
+	deleteHandler(pub)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -102,22 +119,27 @@ func Test_deleteHandler(t *testing.T) {
 	if loc := rec.Header().Get("Location"); loc != "/" {
 		t.Errorf("redirect = %q, want %q", loc, "/")
 	}
-	if _, err := store.Get(id); err == nil {
-		t.Errorf("after delete, Get(%d) returned nil error, want error", id)
+
+	if len(pub.events) != 1 {
+		t.Fatalf("published %d events, want 1", len(pub.events))
+	}
+	want := task.EventMessage{Type: task.EventDeleted, Task: task.Task{ID: id}}
+	if pub.events[0] != want {
+		t.Errorf("published event = %v, want %v", pub.events[0], want)
+	}
+
+	// The worker deletes from the store now, not the handler.
+	if _, err := store.Get(id); err != nil {
+		t.Errorf("task %s was deleted by the handler, want it kept: Get error = %v", id, err)
 	}
 }
 
 func Test_deleteHandler_InvalidID(t *testing.T) {
-	store := storage.NewMemoryStore()
-	id, err := store.Create("Buy", "Milk")
-	if err != nil {
-		t.Fatalf("Create returned error: %v", err)
-	}
-
+	pub := &fakePublisher{}
 	req := httptest.NewRequest(http.MethodGet, "/delete/?id=abc", nil)
 	rec := httptest.NewRecorder()
 
-	deleteHandler(store)(rec, req)
+	deleteHandler(pub)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -125,8 +147,8 @@ func Test_deleteHandler_InvalidID(t *testing.T) {
 	if loc := rec.Header().Get("Location"); loc != "/" {
 		t.Errorf("redirect = %q, want %q", loc, "/")
 	}
-	if _, err := store.Get(id); err != nil {
-		t.Errorf("task %d was deleted, want it kept: Get error = %v", id, err)
+	if len(pub.events) != 0 {
+		t.Errorf("published %d events for an invalid id, want 0", len(pub.events))
 	}
 }
 
@@ -135,7 +157,7 @@ func Test_editHandler_InvalidID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/edit/?id=abc", nil)
 	rec := httptest.NewRecorder()
 
-	editHandler(store)(rec, req)
+	editHandler(store, &fakePublisher{})(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -147,15 +169,15 @@ func Test_editHandler_InvalidID(t *testing.T) {
 
 func Test_editHandler_Form(t *testing.T) {
 	store := storage.NewMemoryStore()
-	id, err := store.Create("Buy", "Milk")
-	if err != nil {
+	id := uuid.Must(uuid.NewV7())
+	if err := store.Create(id, "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/edit/?id=%d", id), nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/edit/?id=%s", id), nil)
 	rec := httptest.NewRecorder()
 
-	editHandler(store)(rec, req)
+	editHandler(store, &fakePublisher{})(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -171,15 +193,16 @@ func Test_editHandler_Form(t *testing.T) {
 
 func Test_editHandler_Save(t *testing.T) {
 	store := storage.NewMemoryStore()
-	id, err := store.Create("Buy", "Milk")
-	if err != nil {
+	id := uuid.Must(uuid.NewV7())
+	if err := store.Create(id, "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/edit/?id=%d&ftitle=Sell&fdescription=Bread", id), nil)
+	pub := &fakePublisher{}
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/edit/?id=%s&ftitle=Sell&fdescription=Bread", id), nil)
 	rec := httptest.NewRecorder()
 
-	editHandler(store)(rec, req)
+	editHandler(store, pub)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -188,13 +211,25 @@ func Test_editHandler_Save(t *testing.T) {
 		t.Errorf("redirect = %q, want %q", loc, "/")
 	}
 
+	if len(pub.events) != 1 {
+		t.Fatalf("published %d events, want 1", len(pub.events))
+	}
+	want := task.EventMessage{
+		Type: task.EventEdited,
+		Task: task.Task{ID: id, Title: "Sell", Description: "Bread"},
+	}
+	if pub.events[0] != want {
+		t.Errorf("published event = %v, want %v", pub.events[0], want)
+	}
+
+	// The worker updates the store now, not the handler.
 	got, err := store.Get(id)
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
-	want := task.Task{ID: id, Title: "Sell", Description: "Bread"}
-	if got != want {
-		t.Errorf("after edit, Get(%d) = %v, want %v", id, got, want)
+	unchanged := task.Task{ID: id, Title: "Buy", Description: "Milk"}
+	if got != unchanged {
+		t.Errorf("after edit, Get(%s) = %v, want unchanged %v", id, got, unchanged)
 	}
 }
 
@@ -204,22 +239,40 @@ type failingStore struct{}
 
 var errStoreDown = errors.New("store down")
 
-func (failingStore) Create(title, description string) (int, error)  { return 0, errStoreDown }
-func (failingStore) Update(id int, title, description string) error { return errStoreDown }
-func (failingStore) Delete(id int) error                            { return errStoreDown }
-func (failingStore) Get(id int) (task.Task, error)                  { return task.Task{}, errStoreDown }
-func (failingStore) List() ([]task.Task, error)                     { return nil, errStoreDown }
+func (failingStore) Create(id uuid.UUID, title, description string) error { return errStoreDown }
+func (failingStore) Update(id uuid.UUID, title, description string) error { return errStoreDown }
+func (failingStore) Delete(id uuid.UUID) error                            { return errStoreDown }
+func (failingStore) Get(id uuid.UUID) (task.Task, error)                  { return task.Task{}, errStoreDown }
+func (failingStore) List() ([]task.Task, error)                           { return nil, errStoreDown }
+
+// fakePublisher records published events instead of sending them to Kafka.
+type fakePublisher struct {
+	events []task.EventMessage
+}
+
+func (p *fakePublisher) Publish(e task.EventMessage) error {
+	p.events = append(p.events, e)
+	return nil
+}
+
+// failingPublisher is a Publisher that always fails, like a Kafka outage.
+type failingPublisher struct{}
+
+var errQueueDown = errors.New("queue down")
+
+func (failingPublisher) Publish(e task.EventMessage) error { return errQueueDown }
 
 func Test_handlers_StoreError(t *testing.T) {
+	id := uuid.Must(uuid.NewV7())
 	tests := []struct {
 		name    string
 		handler http.HandlerFunc
 		url     string
 	}{
-		{"home create", homeHandler(failingStore{}), "/?ftitle=Buy&fdescription=Milk"},
-		{"home list", homeHandler(failingStore{}), "/"},
-		{"delete", deleteHandler(failingStore{}), "/delete/?id=1"},
-		{"edit save", editHandler(failingStore{}), "/edit/?id=1&ftitle=Sell&fdescription=Bread"},
+		{"home create", homeHandler(failingStore{}, failingPublisher{}), "/?ftitle=Buy&fdescription=Milk"},
+		{"home list", homeHandler(failingStore{}, failingPublisher{}), "/"},
+		{"delete", deleteHandler(failingPublisher{}), "/delete/?id=" + id.String()},
+		{"edit save", editHandler(failingStore{}, failingPublisher{}), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
 	}
 
 	for _, tt := range tests {
@@ -241,10 +294,10 @@ func Test_handlers_StoreError(t *testing.T) {
 
 func Test_editHandler_MissingTask(t *testing.T) {
 	store := storage.NewMemoryStore()
-	req := httptest.NewRequest(http.MethodGet, "/edit/?id=99", nil)
+	req := httptest.NewRequest(http.MethodGet, "/edit/?id="+uuid.Must(uuid.NewV7()).String(), nil)
 	rec := httptest.NewRecorder()
 
-	editHandler(store)(rec, req)
+	editHandler(store, &fakePublisher{})(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)

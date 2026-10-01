@@ -1,10 +1,12 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"strconv"
+	"slices"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"todo/internal/task"
@@ -36,7 +38,7 @@ func (s *RedisStore) List() ([]task.Task, error) {
 
 	results := []task.Task{}
 	for _, idStr := range ids {
-		id, err := strconv.Atoi(idStr)
+		id, err := uuid.Parse(idStr)
 		if err != nil {
 			return nil, err
 		}
@@ -48,58 +50,63 @@ func (s *RedisStore) List() ([]task.Task, error) {
 		results = append(results, t)
 	}
 
+	// Set members come back in no particular order; UUIDv7s sort by creation time.
+	slices.SortFunc(results, func(a, b task.Task) int { return bytes.Compare(a.ID[:], b.ID[:]) })
 	return results, nil
 }
 
-func (s *RedisStore) Get(id int) (task.Task, error) {
+func (s *RedisStore) Get(id uuid.UUID) (task.Task, error) {
 	ctx := context.Background()
-	key := fmt.Sprintf("task:%d", id)
+	key := taskKey(id)
 
 	fields, err := s.client.HGetAll(ctx, key).Result()
 	if err != nil {
 		return task.Task{}, err
 	}
 	if len(fields) == 0 {
-		return task.Task{}, fmt.Errorf("task %d not found", id)
+		return task.Task{}, fmt.Errorf("task %s not found", id)
 	}
 
 	return task.Task{ID: id, Title: fields["title"], Description: fields["description"]}, nil
 }
 
-func (s *RedisStore) Create(title, description string) (id int, err error) {
+func (s *RedisStore) Create(id uuid.UUID, title, description string) error {
 	ctx := context.Background()
+	key := taskKey(id)
 
-	newID, err := s.client.Incr(ctx, "task_id_counter").Result()
+	exists, err := s.client.Exists(ctx, key).Result()
 	if err != nil {
-		return 0, err
+		return err
+	}
+	if exists == 1 {
+		return nil
 	}
 
-	key := fmt.Sprintf("task:%d", newID)
 	if err := s.client.HSet(ctx, key, "title", title, "description", description).Err(); err != nil {
-		return 0, err
+		return err
 	}
 
-	if err := s.client.SAdd(ctx, "tasks", newID).Err(); err != nil {
-		return 0, err
-	}
-
-	return int(newID), nil
+	return s.client.SAdd(ctx, "tasks", id.String()).Err()
 }
 
-func (s *RedisStore) Update(id int, title, description string) error {
+func (s *RedisStore) Update(id uuid.UUID, title, description string) error {
 	ctx := context.Background()
-	key := fmt.Sprintf("task:%d", id)
+	key := taskKey(id)
 
 	return s.client.HSet(ctx, key, "title", title, "description", description).Err()
 }
 
-func (s *RedisStore) Delete(id int) error {
+func (s *RedisStore) Delete(id uuid.UUID) error {
 	ctx := context.Background()
-	key := fmt.Sprintf("task:%d", id)
+	key := taskKey(id)
 
 	if err := s.client.Del(ctx, key).Err(); err != nil {
 		return err
 	}
 
-	return s.client.SRem(ctx, "tasks", id).Err()
+	return s.client.SRem(ctx, "tasks", id.String()).Err()
+}
+
+func taskKey(id uuid.UUID) string {
+	return "task:" + id.String()
 }

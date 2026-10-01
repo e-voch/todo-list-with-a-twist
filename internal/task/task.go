@@ -1,16 +1,21 @@
 package task
 
+import "github.com/google/uuid"
+
 type Task struct {
-	ID          int    `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ID          uuid.UUID `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
 }
 
 type Store interface {
-	Create(title, description string) (id int, err error)
-	Update(id int, title, description string) error
-	Delete(id int) error
-	Get(id int) (Task, error)
+	// Create stores a new task under id. If a task with that id already
+	// exists, Create does nothing, so a redelivered event is harmless.
+	Create(id uuid.UUID, title, description string) error
+	Update(id uuid.UUID, title, description string) error
+	Delete(id uuid.UUID) error
+	Get(id uuid.UUID) (Task, error)
+	// List returns tasks oldest first.
 	List() ([]Task, error)
 }
 

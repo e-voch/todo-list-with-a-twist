@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/google/uuid"
+
 	"todo/internal/queue"
 	"todo/internal/task"
 )
@@ -16,7 +19,7 @@ func main() {
 
 	event := task.EventMessage{
 		Type: task.EventCreated,
-		Task: task.Task{Title: "sell milk", Description: "10 litres"},
+		Task: task.Task{ID: uuid.Must(uuid.NewV7()), Title: "sell milk", Description: "10 litres"},
 	}
 
 	if err := testProducer.Publish(event); err != nil {

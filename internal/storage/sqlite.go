@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 
 	"todo/internal/task"
@@ -18,7 +19,7 @@ func NewSqliteStore(path string) (*SqliteStore, error) {
 		return nil, err
 	}
 
-	if _, err := database.Exec("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, title TEXT, description TEXT)"); err != nil {
+	if _, err := database.Exec("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY NOT NULL, title TEXT, description TEXT)"); err != nil {
 		database.Close()
 		return nil, err
 	}
@@ -29,7 +30,8 @@ func NewSqliteStore(path string) (*SqliteStore, error) {
 func (s *SqliteStore) List() ([]task.Task, error) {
 	results := []task.Task{}
 
-	rows, err := s.db.Query("SELECT id, title, description FROM tasks")
+	// UUIDv7 strings sort by creation time, so ORDER BY id is oldest first.
+	rows, err := s.db.Query("SELECT id, title, description FROM tasks ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +51,7 @@ func (s *SqliteStore) List() ([]task.Task, error) {
 	return results, nil
 }
 
-func (s *SqliteStore) Get(id int) (task.Task, error) {
+func (s *SqliteStore) Get(id uuid.UUID) (task.Task, error) {
 	var t task.Task
 	row := s.db.QueryRow("SELECT id, title, description FROM tasks WHERE id = ?", id)
 	if err := row.Scan(&t.ID, &t.Title, &t.Description); err != nil {
@@ -58,26 +60,20 @@ func (s *SqliteStore) Get(id int) (task.Task, error) {
 	return t, nil
 }
 
-func (s *SqliteStore) Create(title, description string) (id int, err error) {
-	result, err := s.db.Exec("INSERT INTO tasks (title, description) VALUES (?, ?)", title, description)
-	if err != nil {
-		return 0, err
-	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		return 0, err
-	}
-
-	return int(lastID), nil
+func (s *SqliteStore) Create(id uuid.UUID, title, description string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO tasks (id, title, description) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+		id, title, description,
+	)
+	return err
 }
 
-func (s *SqliteStore) Update(id int, title, description string) error {
+func (s *SqliteStore) Update(id uuid.UUID, title, description string) error {
 	_, err := s.db.Exec("UPDATE tasks SET title = ?, description = ? WHERE id = ?", title, description, id)
 	return err
 }
 
-func (s *SqliteStore) Delete(id int) error {
+func (s *SqliteStore) Delete(id uuid.UUID) error {
 	_, err := s.db.Exec("DELETE FROM tasks WHERE id = ?", id)
 	return err
 }
