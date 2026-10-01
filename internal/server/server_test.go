@@ -69,13 +69,12 @@ func Test_homeHandler_Create(t *testing.T) {
 		t.Errorf("published event = %v, want %v", pub.events[0], want)
 	}
 
-	// The worker writes the store now, not the handler.
-	tasks, err := store.List()
+	saved, err := store.Get(got.Task.ID)
 	if err != nil {
-		t.Fatalf("List returned error: %v", err)
+		t.Fatalf("Get(%s) returned error: %v", got.Task.ID, err)
 	}
-	if len(tasks) != 0 {
-		t.Errorf("store has %d tasks, want 0", len(tasks))
+	if saved != want.Task {
+		t.Errorf("saved task = %v, want %v", saved, want.Task)
 	}
 }
 
@@ -111,7 +110,7 @@ func Test_deleteHandler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/delete/?id=%s", id), nil)
 	rec := httptest.NewRecorder()
 
-	deleteHandler(pub)(rec, req)
+	deleteHandler(store, pub)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -128,9 +127,8 @@ func Test_deleteHandler(t *testing.T) {
 		t.Errorf("published event = %v, want %v", pub.events[0], want)
 	}
 
-	// The worker deletes from the store now, not the handler.
-	if _, err := store.Get(id); err != nil {
-		t.Errorf("task %s was deleted by the handler, want it kept: Get error = %v", id, err)
+	if _, err := store.Get(id); err == nil {
+		t.Errorf("after delete, Get(%s) returned nil error, want error", id)
 	}
 }
 
@@ -139,7 +137,7 @@ func Test_deleteHandler_InvalidID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/delete/?id=abc", nil)
 	rec := httptest.NewRecorder()
 
-	deleteHandler(pub)(rec, req)
+	deleteHandler(storage.NewMemoryStore(), pub)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -222,14 +220,12 @@ func Test_editHandler_Save(t *testing.T) {
 		t.Errorf("published event = %v, want %v", pub.events[0], want)
 	}
 
-	// The worker updates the store now, not the handler.
 	got, err := store.Get(id)
 	if err != nil {
 		t.Fatalf("Get returned error: %v", err)
 	}
-	unchanged := task.Task{ID: id, Title: "Buy", Description: "Milk"}
-	if got != unchanged {
-		t.Errorf("after edit, Get(%s) = %v, want unchanged %v", id, got, unchanged)
+	if got != want.Task {
+		t.Errorf("after edit, Get(%s) = %v, want %v", id, got, want.Task)
 	}
 }
 
@@ -264,15 +260,16 @@ func (failingPublisher) Publish(e task.EventMessage) error { return errQueueDown
 
 func Test_handlers_StoreError(t *testing.T) {
 	id := uuid.Must(uuid.NewV7())
+	pub := &fakePublisher{}
 	tests := []struct {
 		name    string
 		handler http.HandlerFunc
 		url     string
 	}{
-		{"home create", homeHandler(failingStore{}, failingPublisher{}), "/?ftitle=Buy&fdescription=Milk"},
-		{"home list", homeHandler(failingStore{}, failingPublisher{}), "/"},
-		{"delete", deleteHandler(failingPublisher{}), "/delete/?id=" + id.String()},
-		{"edit save", editHandler(failingStore{}, failingPublisher{}), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
+		{"home create", homeHandler(failingStore{}, pub), "/?ftitle=Buy&fdescription=Milk"},
+		{"home list", homeHandler(failingStore{}, pub), "/"},
+		{"delete", deleteHandler(failingStore{}, pub), "/delete/?id=" + id.String()},
+		{"edit save", editHandler(failingStore{}, pub), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
 	}
 
 	for _, tt := range tests {
@@ -288,7 +285,51 @@ func Test_handlers_StoreError(t *testing.T) {
 			if loc := rec.Header().Get("Location"); loc != "" {
 				t.Errorf("redirected to %q on store error, want no redirect", loc)
 			}
+			if len(pub.events) != 0 {
+				t.Errorf("published %d events after a failed write, want 0", len(pub.events))
+			}
 		})
+	}
+}
+
+// A publish failure must not fail the request: the task is already saved.
+func Test_handlers_PublishError(t *testing.T) {
+	store := storage.NewMemoryStore()
+	id := uuid.Must(uuid.NewV7())
+	if err := store.Create(id, "Buy", "Milk"); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		url     string
+	}{
+		{"home create", homeHandler(store, failingPublisher{}), "/?ftitle=New&fdescription=Task"},
+		{"edit save", editHandler(store, failingPublisher{}), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
+		{"delete", deleteHandler(store, failingPublisher{}), "/delete/?id=" + id.String()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			rec := httptest.NewRecorder()
+
+			tt.handler(rec, req)
+
+			if rec.Code != http.StatusSeeOther {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+			}
+		})
+	}
+
+	// After create, edit and delete of the original, only the new task is left.
+	tasks, err := store.List()
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].Title != "New" {
+		t.Errorf("store has %v, want only the task titled %q", tasks, "New")
 	}
 }
 

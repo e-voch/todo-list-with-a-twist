@@ -17,8 +17,8 @@ type Publisher interface {
 	Publish(e task.EventMessage) error
 }
 
-// NewHandler returns the application's HTTP routes. Reads come from store;
-// writes are sent as events through pub.
+// NewHandler returns the application's HTTP routes. Reads and writes go to
+// store; after a successful write, an event is published through pub.
 func NewHandler(store task.Store, pub Publisher) http.Handler {
 	static, err := fs.Sub(web.FS, "static")
 	if err != nil {
@@ -28,7 +28,7 @@ func NewHandler(store task.Store, pub Publisher) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 	mux.HandleFunc("/favicon.ico", faviconHandler)
-	mux.HandleFunc("/delete/", deleteHandler(pub))
+	mux.HandleFunc("/delete/", deleteHandler(store, pub))
 	mux.HandleFunc("/edit/", editHandler(store, pub))
 	mux.HandleFunc("/{$}", homeHandler(store, pub))
 	mux.HandleFunc("/", notFoundHandler)
@@ -42,24 +42,22 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		description := r.FormValue("fdescription")
 
 		if title != "" {
-			// The ID is chosen here, before the event is published, so a
-			// redelivered event creates the same task instead of a duplicate.
 			id, err := uuid.NewV7()
 			if err != nil {
 				slog.Error("generate id failed", "err", err)
 				http.Error(w, "could not create task", http.StatusInternalServerError)
 				return
 			}
-			event := task.EventMessage{
-				Type: task.EventCreated,
-				Task: task.Task{ID: id, Title: title, Description: description},
-			}
-			if err := pub.Publish(event); err != nil {
-				slog.Error("publish create failed", "err", err)
+			if err := store.Create(id, title, description); err != nil {
+				slog.Error("create failed", "err", err)
 				http.Error(w, "could not create task", http.StatusInternalServerError)
 				return
 			}
-			slog.Info("create event published", "id", id, "title", title, "description", description)
+			slog.Info("task created", "id", id, "title", title, "description", description)
+			publish(pub, task.EventMessage{
+				Type: task.EventCreated,
+				Task: task.Task{ID: id, Title: title, Description: description},
+			})
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
@@ -93,7 +91,7 @@ func faviconHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func deleteHandler(pub Publisher) http.HandlerFunc {
+func deleteHandler(store task.Store, pub Publisher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("delete endpoint reached", "method", r.Method, "path", r.URL.Path)
 		idStr := r.FormValue("id")
@@ -105,13 +103,13 @@ func deleteHandler(pub Publisher) http.HandlerFunc {
 			return
 		}
 
-		event := task.EventMessage{Type: task.EventDeleted, Task: task.Task{ID: id}}
-		if err := pub.Publish(event); err != nil {
-			slog.Error("publish delete failed", "id", id, "err", err)
+		if err := store.Delete(id); err != nil {
+			slog.Error("delete failed", "id", id, "err", err)
 			http.Error(w, "could not delete task", http.StatusInternalServerError)
 			return
 		}
-		slog.Info("delete event published", "id", id)
+		slog.Info("task deleted", "id", id)
+		publish(pub, task.EventMessage{Type: task.EventDeleted, Task: task.Task{ID: id}})
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
 }
@@ -132,16 +130,16 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		description := r.FormValue("fdescription")
 
 		if title != "" {
-			event := task.EventMessage{
-				Type: task.EventEdited,
-				Task: task.Task{ID: id, Title: title, Description: description},
-			}
-			if err := pub.Publish(event); err != nil {
-				slog.Error("publish edit failed", "id", id, "err", err)
+			if err := store.Update(id, title, description); err != nil {
+				slog.Error("update failed", "id", id, "err", err)
 				http.Error(w, "could not update task", http.StatusInternalServerError)
 				return
 			}
-			slog.Info("edit event published", "id", id, "title", title, "description", description)
+			slog.Info("task updated", "id", id, "title", title, "description", description)
+			publish(pub, task.EventMessage{
+				Type: task.EventEdited,
+				Task: task.Task{ID: id, Title: title, Description: description},
+			})
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
@@ -170,5 +168,14 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		if err := tmpl.Execute(w, data); err != nil {
 			slog.Error("render failed", "err", err)
 		}
+	}
+}
+
+// publish sends e after the store write has already succeeded. A failure is
+// only logged: the task is saved, so the request still succeeds, but the
+// event is lost. An outbox table would close that gap.
+func publish(pub Publisher, e task.EventMessage) {
+	if err := pub.Publish(e); err != nil {
+		slog.Error("publish failed", "type", e.Type, "id", e.Task.ID, "err", err)
 	}
 }
