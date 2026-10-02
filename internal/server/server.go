@@ -12,6 +12,11 @@ import (
 	"todo/web"
 )
 
+var (
+	homeTmpl = template.Must(template.ParseFS(web.FS, "templates/home.html"))
+	editTmpl = template.Must(template.ParseFS(web.FS, "templates/edit.html"))
+)
+
 // Publisher sends task events to the queue. *queue.Producer satisfies it.
 type Publisher interface {
 	Publish(e task.EventMessage) error
@@ -69,13 +74,7 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 			return
 		}
 
-		tmpl, err := template.ParseFS(web.FS, "templates/home.html")
-		if err != nil {
-			slog.Error("template parse failed", "err", err)
-			http.Error(w, "could not render page", http.StatusInternalServerError)
-			return
-		}
-		if err := tmpl.Execute(w, taskList); err != nil {
+		if err := homeTmpl.Execute(w, taskList); err != nil {
 			slog.Error("render failed", "err", err)
 		}
 	}
@@ -146,26 +145,18 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 
 		t, err := store.Get(id)
 		if err != nil {
-			// The stores don't yet share a "not found" error, so any Get
-			// failure is reported as a missing task.
 			slog.Error("get failed", "id", id, "err", err)
 			http.Error(w, "task not found", http.StatusNotFound)
 			return
 		}
 
-		tmpl, err := template.ParseFS(web.FS, "templates/edit.html")
-		if err != nil {
-			slog.Error("template parse failed", "err", err)
-			http.Error(w, "could not render page", http.StatusInternalServerError)
-			return
-		}
 		data := struct {
 			ID   uuid.UUID
 			Task task.Task
 		}{id, t}
 
 		slog.Info("edit form displayed", "id", id)
-		if err := tmpl.Execute(w, data); err != nil {
+		if err := editTmpl.Execute(w, data); err != nil {
 			slog.Error("render failed", "err", err)
 		}
 	}

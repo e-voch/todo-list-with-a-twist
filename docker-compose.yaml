@@ -2,16 +2,15 @@ services:
   broker:
     image: apache/kafka:4.1.0
     ports:
-      - "9092:9092"
-
+      - "127.0.0.1:9092:9092"
     environment:
       CLUSTER_ID: '4L6g3nShT-eMCtK--X86sw'
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://broker:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
 
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -21,9 +20,39 @@ services:
       KAFKA_NUM_PARTITIONS: 1
 
       KAFKA_LOG_DIRS: /var/lib/kafka/data
-
     volumes:
       - kafka_kraft:/var/lib/kafka/data
 
+  kafbat-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.5.0
+    ports:
+      - "127.0.0.1:8082:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:29092
+    depends_on:
+      - broker
+
+  postgres:
+    image: postgres:18
+    shm_size: 128mb
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: todo
+      POSTGRES_PASSWORD: todo
+      POSTGRES_DB: todo
+    volumes:
+      - pg_data:/var/lib/postgresql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+
+  adminer:
+    image: adminer:6.1.1
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      - postgres
+
 volumes:
   kafka_kraft:
+  pg_data:
