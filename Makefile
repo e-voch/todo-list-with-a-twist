@@ -1,9 +1,5 @@
 .PHONY: help fmt vet build run test coverage cover up down reset topic kafka migrate-status migrate-up migrate-down
 
-GOOSE_ENV = GOOSE_DRIVER=postgres \
-	GOOSE_DBSTRING="postgres://todo:todo@localhost:5432/todo?sslmode=disable" \
-	GOOSE_MIGRATION_DIR=db/migrations
-
 help:
 	@echo "Available targets:"
 	@echo "  fmt             format code"
@@ -44,7 +40,7 @@ cover: coverage
 	go tool cover -html=coverage.out
 
 up:
-	docker compose up -d
+	docker compose up -d --build
 
 down:
 	docker compose down --remove-orphans
@@ -62,11 +58,14 @@ kafka:
 		--bootstrap-server localhost:9092 --topic tasks --from-beginning \
 		--property print.key=true --property print.timestamp=true
 
+
+DATABASE_URL = postgres://todo:todo@localhost:5432/todo?sslmode=disable
+
 migrate-status:
-	$(GOOSE_ENV) goose status
+	DATABASE_URL="$(DATABASE_URL)" go run ./cmd/migrate status
 
 migrate-up:
-	$(GOOSE_ENV) goose up
+	DATABASE_URL="$(DATABASE_URL)" go run ./cmd/migrate up
 
 migrate-down:
-	$(GOOSE_ENV) goose down
+	DATABASE_URL="$(DATABASE_URL)" go run ./cmd/migrate down

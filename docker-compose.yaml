@@ -45,6 +45,20 @@ services:
       POSTGRES_DB: todo
     volumes:
       - pg_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todo"]
+      interval: 2s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgres://todo:todo@postgres:5432/todo?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   adminer:
     image: adminer:6.1.1
@@ -52,8 +66,6 @@ services:
       - "127.0.0.1:8081:8080"
     depends_on:
       - postgres
-    
-  
 
 volumes:
   kafka_kraft:
