@@ -35,6 +35,7 @@ services:
 
   postgres:
     image: postgres:18
+    container_name: tasks_database
     shm_size: 128mb
     ports:
       - "127.0.0.1:5432:5432"
@@ -44,7 +45,6 @@ services:
       POSTGRES_DB: todo
     volumes:
       - pg_data:/var/lib/postgresql
-      - ./db/init:/docker-entrypoint-initdb.d:ro
 
   adminer:
     image: adminer:6.1.1
@@ -52,6 +52,8 @@ services:
       - "127.0.0.1:8081:8080"
     depends_on:
       - postgres
+    
+  
 
 volumes:
   kafka_kraft:

@@ -32,6 +32,7 @@ func (p *PostgresStore) Close() error {
 // TODO: WRITE THESE FUNCTIONS
 
 // func (p *PostgresStore) List() ([]task.Task, error) {
+// 	db, err := p.db.Query(`select `)
 // }
 
 // func (p *PostgresStore) Get(id uuid.UUID) (task.Task, error) {
