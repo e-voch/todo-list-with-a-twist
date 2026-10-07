@@ -16,7 +16,12 @@ func main() {
 	topic := flag.String("topic", "tasks", "kafka topic for task events")
 	flag.Parse()
 
-	store := storage.NewMemoryStore()
+	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
+	if err != nil {
+		slog.Error("failed to connect to postgres", "err", err)
+		os.Exit(1)
+	}
+	defer store.Close()
 
 	producer, err := queue.NewProducer(*brokers, *topic)
 	if err != nil {

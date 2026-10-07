@@ -28,7 +28,7 @@ build: vet
 	go build -o bin/todo ./cmd/todo
 
 run:
-	go run ./cmd/todo
+	DATABASE_URL="$(DATABASE_URL)" go run ./cmd/todo
 
 test:
 	go test -count=1 ./...
