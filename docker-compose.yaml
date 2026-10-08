@@ -22,6 +22,12 @@ services:
       KAFKA_LOG_DIRS: /var/lib/kafka/data
     volumes:
       - kafka_kraft:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 5s
+      timeout: 10s
+      start_period: 10s
+      retries: 20
 
   kafbat-ui:
     image: ghcr.io/kafbat/kafka-ui:v1.5.0
@@ -32,6 +38,13 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:29092
     depends_on:
       - broker
+
+  kafka-init:
+    image: apache/kafka:4.1.0
+    command: /opt/kafka/bin/kafka-topics.sh --bootstrap-server broker:29092 --create --if-not-exists --topic tasks --partitions 1 --replication-factor 1
+    depends_on:
+      broker:
+        condition: service_healthy
 
   postgres:
     image: postgres:18
