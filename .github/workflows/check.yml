@@ -24,4 +24,4 @@ jobs:
         run: go vet ./...
 
       - name: test
-        run: go test $$(go list ./... | grep -v /test/e2e)
+        run: go test $(go list ./... | grep -v /test/e2e)
