@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 
 	ctr, err := postgres.Run(ctx,
 		"postgres:18",
-		postgres.WithDatabase("todo"),
+		postgres.WithDatabase("todos"),
 		postgres.WithUsername("todo"),
 		postgres.WithPassword("todo"),
 		postgres.BasicWaitStrategies(),
