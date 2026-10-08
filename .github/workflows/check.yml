@@ -1,0 +1,27 @@
+name: CI Pipeline
+
+on :
+  push:
+    branches: [main]
+
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+
+      - name: Set up Go files
+        uses: actions/setup-go@v6
+        with:
+            go-version-file: go.mod
+
+      - name: Bet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./...
