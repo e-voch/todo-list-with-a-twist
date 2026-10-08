@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go files
         uses: actions/setup-go@v6
         with:
-            go-version-file: go.mod
+            go-version-file: 'go.mod'
 
       - name: Vet
         run: go vet ./...
