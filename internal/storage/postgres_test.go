@@ -118,8 +118,8 @@ func Test_Postgres_List(t *testing.T) {
 	if tasks[0].ID != id1 {
 		t.Errorf("tasks[0].ID: want %s, got %s", id1, tasks[0].ID)
 	}
-	if tasks[0].Title != "buy milks" {
-		t.Errorf("tasks[0].Title: want %q, got %q", "buy milks", tasks[0].Title)
+	if tasks[0].Title != "buy milk" {
+		t.Errorf("tasks[0].Title: want %q, got %q", "buy milk", tasks[0].Title)
 	}
 	if tasks[1].ID != id2 {
 		t.Errorf("tasks[1].ID: want %s, got %s", id2, tasks[1].ID)
