@@ -1,0 +1,35 @@
+name: CD Pipeline Release
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Generate Random tag 
+        run: |
+          RANDOM_TAG=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)
+          echo "MY_TAG=$RANDOM_TAG" >> $GITHUB_ENV
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        run: |
+            docker build -f Dockerfile.app -t ghcr.io/e-voch/todo-list-with-a-twist-app:${{ env.MY_TAG }} .
+            docker push ghcr.io/e-voch/todo-list-with-a-twist-app:${{ env.MY_TAG }}
