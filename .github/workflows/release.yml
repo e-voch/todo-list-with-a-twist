@@ -1,9 +1,8 @@
 name: CD Pipeline Release
 on:
-  workflow_run:
-    workflows: ["CI Pipeline"]
-    types: [completed]
-    branches: [main]
+  push:
+    branches:
+      - master
 
 permissions:
   contents: read
