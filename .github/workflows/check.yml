@@ -3,11 +3,30 @@ name: CI Pipeline
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '.github/workflows/**'
-
+    
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'web/**'
+              - 'go.mod'
+              - 'Dockerfile*'
+              - '.github/workflows/**'
+
+
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
