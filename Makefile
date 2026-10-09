@@ -67,3 +67,6 @@ migrate-up:
 
 migrate-down:
 	DATABASE_URL="$(DATABASE_URL)" go run ./cmd/migrate down
+
+application-image-build:
+	echo "to be done"
