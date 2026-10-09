@@ -28,6 +28,4 @@ jobs:
           go-version-file: go.mod
 
       - run: make up
-      - run: make run > app.log 2>&1 &
-      - run: timeout 60 bash -c 'until curl -sf localhost:8080/; do sleep 1; done'
       - run: make test-e2e
