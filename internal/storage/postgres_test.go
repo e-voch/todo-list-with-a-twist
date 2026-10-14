@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"os"
 	"testing"
@@ -126,5 +127,32 @@ func Test_Postgres_List(t *testing.T) {
 	}
 	if tasks[1].Title != "walk dog" {
 		t.Errorf("tasks[1].Title: want %q, got %q", "walk dog", tasks[1].Title)
+	}
+}
+
+func Test_Postgres_SetRecommendedSteps(t *testing.T) {
+	store := newTestStore(t)
+	id := createTask(t, store, "buy milk", "2 litres")
+
+	if err := store.SetRecommendedSteps(id, "go to the shop"); err != nil {
+		t.Fatalf("SetRecommendedSteps: %v", err)
+	}
+
+	var got string
+	err := store.db.QueryRow(`SELECT recommended_steps FROM tasks WHERE uuid = $1`, id).Scan(&got)
+	if err != nil {
+		t.Fatalf("select recommended_steps: %v", err)
+	}
+	if got != "go to the shop" {
+		t.Errorf("recommended_steps: want %q, got %q", "go to the shop", got)
+	}
+}
+
+func Test_Postgres_SetRecommendedSteps_NotFound(t *testing.T) {
+	store := newTestStore(t)
+
+	err := store.SetRecommendedSteps(uuid.New(), "steps")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }

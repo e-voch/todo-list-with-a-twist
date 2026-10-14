@@ -1,7 +1,6 @@
 FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN ls -la
 RUN go mod download
 COPY . .
 RUN go build -o todo ./cmd/todo

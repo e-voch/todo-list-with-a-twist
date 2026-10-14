@@ -10,6 +10,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
+var ErrNotFound = errors.New("task not found")
+
 type PostgresStore struct {
 	db *sql.DB
 }
@@ -58,7 +60,7 @@ func (p *PostgresStore) Get(id uuid.UUID) (task.Task, error) {
 	err := p.db.QueryRow(`SELECT uuid, title, description FROM tasks WHERE uuid = $1`, id).
 		Scan(&t.ID, &t.Title, &t.Description)
 	if errors.Is(err, sql.ErrNoRows) {
-		return task.Task{}, fmt.Errorf("task %s not found", id)
+		return task.Task{}, fmt.Errorf("task %s: %w", id, ErrNotFound)
 	}
 	if err != nil {
 		return task.Task{}, fmt.Errorf("get task %s: %w", id, err)
@@ -82,6 +84,14 @@ func (p *PostgresStore) Update(id uuid.UUID, title, description string) error {
 	return checkFound(res, id)
 }
 
+func (p *PostgresStore) SetRecommendedSteps(id uuid.UUID, steps string) error {
+	res, err := p.db.Exec(`UPDATE tasks SET recommended_steps = $2 WHERE uuid = $1`, id, steps)
+	if err != nil {
+		return fmt.Errorf("set recommended steps for task %s: %w", id, err)
+	}
+	return checkFound(res, id)
+}
+
 func (p *PostgresStore) Delete(id uuid.UUID) error {
 	res, err := p.db.Exec(`DELETE FROM tasks WHERE uuid = $1`, id)
 	if err != nil {
@@ -96,7 +106,7 @@ func checkFound(res sql.Result, id uuid.UUID) error {
 		return fmt.Errorf("rows affected: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("task %s not found", id)
+		return fmt.Errorf("task %s: %w", id, ErrNotFound)
 	}
 	return nil
 }
