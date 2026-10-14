@@ -138,13 +138,12 @@ func Test_Postgres_SetRecommendedSteps(t *testing.T) {
 		t.Fatalf("SetRecommendedSteps: %v", err)
 	}
 
-	var got string
-	err := store.db.QueryRow(`SELECT recommended_steps FROM tasks WHERE uuid = $1`, id).Scan(&got)
+	got, err := store.Get(id)
 	if err != nil {
-		t.Fatalf("select recommended_steps: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if got != "go to the shop" {
-		t.Errorf("recommended_steps: want %q, got %q", "go to the shop", got)
+	if got.RecommendedSteps != "go to the shop" {
+		t.Errorf("RecommendedSteps: want %q, got %q", "go to the shop", got.RecommendedSteps)
 	}
 }
 

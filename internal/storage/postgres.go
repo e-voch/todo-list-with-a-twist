@@ -35,7 +35,7 @@ func (p *PostgresStore) Close() error {
 }
 
 func (p *PostgresStore) List() ([]task.Task, error) {
-	rows, err := p.db.Query(`SELECT uuid, title, description FROM tasks ORDER BY id`)
+	rows, err := p.db.Query(`SELECT uuid, title, description, COALESCE(recommended_steps, '') FROM tasks ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -44,7 +44,7 @@ func (p *PostgresStore) List() ([]task.Task, error) {
 	tasks := []task.Task{}
 	for rows.Next() {
 		var t task.Task
-		if err := rows.Scan(&t.ID, &t.Title, &t.Description); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.RecommendedSteps); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		tasks = append(tasks, t)
@@ -57,8 +57,8 @@ func (p *PostgresStore) List() ([]task.Task, error) {
 
 func (p *PostgresStore) Get(id uuid.UUID) (task.Task, error) {
 	var t task.Task
-	err := p.db.QueryRow(`SELECT uuid, title, description FROM tasks WHERE uuid = $1`, id).
-		Scan(&t.ID, &t.Title, &t.Description)
+	err := p.db.QueryRow(`SELECT uuid, title, description, COALESCE(recommended_steps, '') FROM tasks WHERE uuid = $1`, id).
+		Scan(&t.ID, &t.Title, &t.Description, &t.RecommendedSteps)
 	if errors.Is(err, sql.ErrNoRows) {
 		return task.Task{}, fmt.Errorf("task %s: %w", id, ErrNotFound)
 	}

@@ -59,6 +59,7 @@ ul {
 
 li {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
@@ -100,6 +101,17 @@ li a[href^="/delete/"] {
 
 li a[href^="/delete/"]:hover {
 	background: rgba(220, 38, 38, 0.18);
+}
+
+li .steps {
+	flex-basis: 100%;
+	margin: 0;
+	font-size: 0.9rem;
+	color: var(--muted);
+}
+
+li .steps.pending {
+	font-style: italic;
 }
 
 form div {

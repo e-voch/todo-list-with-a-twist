@@ -17,6 +17,11 @@
                 {{ .Title }} : {{ .Description }}
                 <a href="/edit/?id={{.ID}}">Edit</a>
                 <a href="/delete/?id={{.ID}}">Delete</a>
+                {{ if .RecommendedSteps }}
+                <p class="steps">{{ .RecommendedSteps }}</p>
+                {{ else }}
+                <p class="steps pending">Generating steps…</p>
+                {{ end }}
             </li>
         {{ end }}
         </ul>
