@@ -3,9 +3,10 @@ package task
 import "github.com/google/uuid"
 
 type Task struct {
-	ID          uuid.UUID `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
+	ID               uuid.UUID `json:"id"`
+	Title            string    `json:"title"`
+	Description      string    `json:"description"`
+	RecommendedSteps string    `json:"recommended_steps,omitempty"`
 }
 
 type Store interface {
