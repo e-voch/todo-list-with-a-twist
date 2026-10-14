@@ -101,6 +101,20 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
+  worker:
+    container_name: todo-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["-brokers", "broker:29092"]
+    environment:
+      DATABASE_URL: postgres://todo:todo@postgres:5432/todo?sslmode=disable
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
 
 volumes:
   kafka_kraft:
