@@ -34,8 +34,8 @@ func (p *PostgresStore) Close() error {
 	return p.db.Close()
 }
 
-func (p *PostgresStore) List() ([]task.Task, error) {
-	rows, err := p.db.Query(`SELECT uuid, title, description, COALESCE(recommended_steps, '') FROM tasks ORDER BY id`)
+func (p *PostgresStore) List(limit, offset int) ([]task.Task, error) {
+	rows, err := p.db.Query(`SELECT uuid, title, description, COALESCE(recommended_steps, '') FROM tasks ORDER BY id LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -109,4 +109,14 @@ func checkFound(res sql.Result, id uuid.UUID) error {
 		return fmt.Errorf("task %s: %w", id, ErrNotFound)
 	}
 	return nil
+}
+
+func (p *PostgresStore) Count() (int, error) {
+	var c int
+	err := p.db.QueryRow(`SELECT COUNT(*) FROM tasks`).
+		Scan(&c)
+	if err != nil {
+		return 0, fmt.Errorf("count tasks: %w", err)
+	}
+	return c, nil
 }

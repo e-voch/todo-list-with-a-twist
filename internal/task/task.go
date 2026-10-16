@@ -16,8 +16,10 @@ type Store interface {
 	Update(id uuid.UUID, title, description string) error
 	Delete(id uuid.UUID) error
 	Get(id uuid.UUID) (Task, error)
-	// List returns tasks oldest first.
-	List() ([]Task, error)
+	// List returns up to limit tasks, oldest first, skipping the first offset.
+	List(limit, offset int) ([]Task, error)
+	// Count returns the total number of tasks.
+	Count() (int, error)
 }
 
 type EventType string
