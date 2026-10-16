@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func Test_faviconHandler(t *testing.T) {
 }
 
 func Test_homeHandler_Create(t *testing.T) {
-	store := storage.NewMemoryStore()
+	store := newFakeStore()
 	pub := &fakePublisher{}
 	req := httptest.NewRequest(http.MethodGet, "/?ftitle=Buy&fdescription=Milk", nil)
 	rec := httptest.NewRecorder()
@@ -79,7 +80,7 @@ func Test_homeHandler_Create(t *testing.T) {
 }
 
 func Test_homeHandler_List(t *testing.T) {
-	store := storage.NewMemoryStore()
+	store := newFakeStore()
 	if err := store.Create(uuid.Must(uuid.NewV7()), "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
@@ -100,7 +101,7 @@ func Test_homeHandler_List(t *testing.T) {
 }
 
 func Test_deleteHandler(t *testing.T) {
-	store := storage.NewMemoryStore()
+	store := newFakeStore()
 	id := uuid.Must(uuid.NewV7())
 	if err := store.Create(id, "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
@@ -137,7 +138,7 @@ func Test_deleteHandler_InvalidID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/delete/?id=abc", nil)
 	rec := httptest.NewRecorder()
 
-	deleteHandler(storage.NewMemoryStore(), pub)(rec, req)
+	deleteHandler(newFakeStore(), pub)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -151,7 +152,7 @@ func Test_deleteHandler_InvalidID(t *testing.T) {
 }
 
 func Test_editHandler_InvalidID(t *testing.T) {
-	store := storage.NewMemoryStore()
+	store := newFakeStore()
 	req := httptest.NewRequest(http.MethodGet, "/edit/?id=abc", nil)
 	rec := httptest.NewRecorder()
 
@@ -166,7 +167,7 @@ func Test_editHandler_InvalidID(t *testing.T) {
 }
 
 func Test_editHandler_Form(t *testing.T) {
-	store := storage.NewMemoryStore()
+	store := newFakeStore()
 	id := uuid.Must(uuid.NewV7())
 	if err := store.Create(id, "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
@@ -190,7 +191,7 @@ func Test_editHandler_Form(t *testing.T) {
 }
 
 func Test_editHandler_Save(t *testing.T) {
-	store := storage.NewMemoryStore()
+	store := newFakeStore()
 	id := uuid.Must(uuid.NewV7())
 	if err := store.Create(id, "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
@@ -229,6 +230,61 @@ func Test_editHandler_Save(t *testing.T) {
 	}
 }
 
+// fakeStore is an in-memory Store for handler tests. Like PostgresStore,
+// Create ignores an existing ID, and Get, Update and Delete return
+// storage.ErrNotFound for a missing task.
+type fakeStore struct {
+	tasks []task.Task // oldest first
+}
+
+func newFakeStore() *fakeStore { return &fakeStore{} }
+
+func (s *fakeStore) find(id uuid.UUID) int {
+	return slices.IndexFunc(s.tasks, func(t task.Task) bool { return t.ID == id })
+}
+
+func (s *fakeStore) Create(id uuid.UUID, title, description string) error {
+	if s.find(id) < 0 {
+		s.tasks = append(s.tasks, task.Task{ID: id, Title: title, Description: description})
+	}
+	return nil
+}
+
+func (s *fakeStore) Update(id uuid.UUID, title, description string) error {
+	i := s.find(id)
+	if i < 0 {
+		return storage.ErrNotFound
+	}
+	s.tasks[i].Title, s.tasks[i].Description = title, description
+	return nil
+}
+
+func (s *fakeStore) Delete(id uuid.UUID) error {
+	i := s.find(id)
+	if i < 0 {
+		return storage.ErrNotFound
+	}
+	s.tasks = slices.Delete(s.tasks, i, i+1)
+	return nil
+}
+
+func (s *fakeStore) Get(id uuid.UUID) (task.Task, error) {
+	i := s.find(id)
+	if i < 0 {
+		return task.Task{}, storage.ErrNotFound
+	}
+	return s.tasks[i], nil
+}
+
+func (s *fakeStore) List(limit, offset int) ([]task.Task, error) {
+	// Clamp both ends like SQL does: an offset past the end gives an empty page.
+	start := min(offset, len(s.tasks))
+	end := min(start+limit, len(s.tasks))
+	return slices.Clone(s.tasks[start:end]), nil
+}
+
+func (s *fakeStore) Count() (int, error) { return len(s.tasks), nil }
+
 // failingStore is a Store whose every method fails, for testing how
 // handlers react to storage errors.
 type failingStore struct{}
@@ -239,7 +295,8 @@ func (failingStore) Create(id uuid.UUID, title, description string) error { retu
 func (failingStore) Update(id uuid.UUID, title, description string) error { return errStoreDown }
 func (failingStore) Delete(id uuid.UUID) error                            { return errStoreDown }
 func (failingStore) Get(id uuid.UUID) (task.Task, error)                  { return task.Task{}, errStoreDown }
-func (failingStore) List() ([]task.Task, error)                           { return nil, errStoreDown }
+func (failingStore) List(limit, offset int) ([]task.Task, error)          { return nil, errStoreDown }
+func (failingStore) Count() (int, error)                                  { return 0, errStoreDown }
 
 // fakePublisher records published events instead of sending them to Kafka.
 type fakePublisher struct {
@@ -294,7 +351,7 @@ func Test_handlers_StoreError(t *testing.T) {
 
 // A publish failure must not fail the request: the task is already saved.
 func Test_handlers_PublishError(t *testing.T) {
-	store := storage.NewMemoryStore()
+	store := newFakeStore()
 	id := uuid.Must(uuid.NewV7())
 	if err := store.Create(id, "Buy", "Milk"); err != nil {
 		t.Fatalf("Create returned error: %v", err)
@@ -324,7 +381,7 @@ func Test_handlers_PublishError(t *testing.T) {
 	}
 
 	// After create, edit and delete of the original, only the new task is left.
-	tasks, err := store.List()
+	tasks, err := store.List(100, 0)
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
@@ -334,7 +391,7 @@ func Test_handlers_PublishError(t *testing.T) {
 }
 
 func Test_editHandler_MissingTask(t *testing.T) {
-	store := storage.NewMemoryStore()
+	store := newFakeStore()
 	req := httptest.NewRequest(http.MethodGet, "/edit/?id="+uuid.Must(uuid.NewV7()).String(), nil)
 	rec := httptest.NewRecorder()
 
@@ -345,5 +402,43 @@ func Test_editHandler_MissingTask(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "<form") {
 		t.Errorf("rendered the edit form for a missing task")
+	}
+}
+func Test_homeHandler_Pagination(t *testing.T) {
+	store := newFakeStore()
+	for i := range pageSize + 1 {
+		if err := store.Create(uuid.Must(uuid.NewV7()), fmt.Sprintf("Task %02d", i), "Description"); err != nil {
+			t.Fatalf("Create returned error: %v", err)
+		}
+	}
+
+	tests := []struct {
+		name    string
+		url     string
+		wantIn  []string
+		wantOut []string
+	}{
+		{"first page", "/", []string{"Task 00", "?page=2"}, []string{"Task 10", "?page=0"}},
+		{"second page", "/?page=2", []string{"Task 10", "?page=1"}, []string{"Task 00", "?page=3"}},
+		{"bad page falls back to 1", "/?page=abc", []string{"Task 00"}, []string{"Task 10"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			homeHandler(store, &fakePublisher{})(rec, httptest.NewRequest(http.MethodGet, tt.url, nil))
+
+			body := rec.Body.String()
+			for _, s := range tt.wantIn {
+				if !strings.Contains(body, s) {
+					t.Errorf("body missing %q", s)
+				}
+			}
+			for _, s := range tt.wantOut {
+				if strings.Contains(body, s) {
+					t.Errorf("body unexpectedly contains %q", s)
+				}
+			}
+		})
 	}
 }

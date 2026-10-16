@@ -5,11 +5,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-
-	"github.com/google/uuid"
+	"strconv"
 
 	"todo/internal/task"
 	"todo/web"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -17,9 +18,20 @@ var (
 	editTmpl = template.Must(template.ParseFS(web.FS, "templates/edit.html"))
 )
 
+// pageSize is how many tasks the home page shows at once.
+const pageSize = 10
+
 // Publisher sends task events to the queue. *queue.Producer satisfies it.
 type Publisher interface {
 	Publish(e task.EventMessage) error
+}
+
+// homePage is the data the home template renders.
+type homePage struct {
+	Tasks    []task.Task
+	Page     int
+	PrevPage int // 0 when there is no previous page
+	NextPage int // 0 when there is no next page
 }
 
 // NewHandler returns the application's HTTP routes. Reads and writes go to
@@ -67,14 +79,43 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 			return
 		}
 
-		taskList, err := store.List()
+		page, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err != nil || page < 1 {
+			page = 1
+		}
+
+		total, err := store.Count()
+		if err != nil {
+			slog.Error("count failed", "err", err)
+			http.Error(w, "could not load tasks", http.StatusInternalServerError)
+			return
+		}
+
+		// A page past the end goes to the last page; with no tasks that is page 1.
+		lastPage := max(1, (total+pageSize-1)/pageSize)
+		if page > lastPage {
+			http.Redirect(w, r, "/?page="+strconv.Itoa(lastPage), http.StatusSeeOther)
+			return
+		}
+
+		offset := (page - 1) * pageSize
+
+		taskList, err := store.List(pageSize, offset)
 		if err != nil {
 			slog.Error("list failed", "err", err)
 			http.Error(w, "could not load tasks", http.StatusInternalServerError)
 			return
 		}
 
-		if err := homeTmpl.Execute(w, taskList); err != nil {
+		data := homePage{Tasks: taskList, Page: page}
+		if page > 1 {
+			data.PrevPage = page - 1
+		}
+		if offset+pageSize < total {
+			data.NextPage = page + 1
+		}
+
+		if err := homeTmpl.Execute(w, data); err != nil {
 			slog.Error("render failed", "err", err)
 		}
 	}

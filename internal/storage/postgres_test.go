@@ -6,9 +6,11 @@ import (
 	"errors"
 	"log"
 	"os"
+	"slices"
 	"testing"
 
 	"todo/db/migrations"
+	"todo/internal/task"
 
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
@@ -84,7 +86,7 @@ func newTestStore(t *testing.T) *PostgresStore {
 func Test_Postgres_List_Empty(t *testing.T) {
 	store := newTestStore(t)
 
-	tasks, err := store.List()
+	tasks, err := store.List(100, 0)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -108,7 +110,7 @@ func Test_Postgres_List(t *testing.T) {
 		t.Fatalf("Create task 2: %v", err)
 	}
 
-	tasks, err := store.List()
+	tasks, err := store.List(100, 0)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -153,5 +155,99 @@ func Test_Postgres_SetRecommendedSteps_NotFound(t *testing.T) {
 	err := store.SetRecommendedSteps(uuid.New(), "steps")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func Test_Postgres_Create_Idempotent(t *testing.T) {
+	store := newTestStore(t)
+	id := createTask(t, store, "Title", "Description")
+
+	// A redelivered "created" event must keep the first task, not add another.
+	if err := store.Create(id, "Other", "Other description"); err != nil {
+		t.Fatalf("second Create returned error: %v", err)
+	}
+
+	got, err := store.Get(id)
+	if err != nil {
+		t.Fatalf("Get returned error: %v", err)
+	}
+	want := task.Task{ID: id, Title: "Title", Description: "Description"}
+	if got != want {
+		t.Errorf("after second Create, Get(%s) = %v, want %v", id, got, want)
+	}
+
+	list, err := store.List(100, 0)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(list) != 1 {
+		t.Errorf("after second Create, List returned %d tasks, want 1", len(list))
+	}
+}
+
+func Test_Postgres_List_OldestFirst(t *testing.T) {
+	store := newTestStore(t)
+	var want []uuid.UUID
+	for _, title := range []string{"First", "Second", "Third"} {
+		want = append(want, createTask(t, store, title, "Description"))
+	}
+
+	list, err := store.List(100, 0)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(list) != len(want) {
+		t.Fatalf("List returned %d tasks, want %d", len(list), len(want))
+	}
+	for i, got := range list {
+		if got.ID != want[i] {
+			t.Errorf("List(100,0)[%d].ID = %s, want %s", i, got.ID, want[i])
+		}
+	}
+}
+
+// createTask stores a task under a fresh UUIDv7 and returns its ID.
+func createTask(t *testing.T, store *PostgresStore, title, description string) uuid.UUID {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	if err := store.Create(id, title, description); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	return id
+}
+
+func Test_pagination_List(t *testing.T) {
+	store := newTestStore(t)
+	createTask(t, store, "buy milk", "2 litres")
+	createTask(t, store, "walk dog", "30 minutes")
+	id3 := createTask(t, store, "Call Euni", "Whatsapp")
+	id4 := createTask(t, store, "Gym", "30 minutes at the gym")
+
+	want := []task.Task{
+		{ID: id3, Title: "Call Euni", Description: "Whatsapp"},
+		{ID: id4, Title: "Gym", Description: "30 minutes at the gym"},
+	}
+
+	got, err := store.List(2, 2)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	if !slices.Equal(got, want) {
+		t.Errorf("List(2, 2) = %v, want %v", got, want)
+	}
+}
+
+func Test_Postgres_Count(t *testing.T) {
+	store := newTestStore(t)
+	createTask(t, store, "One", "Description")
+	createTask(t, store, "Two", "Description")
+
+	got, err := store.Count()
+	if err != nil {
+		t.Fatalf("Count: %v", err)
+	}
+	if got != 2 {
+		t.Errorf("Count = %d, want 2", got)
 	}
 }
