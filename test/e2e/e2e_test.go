@@ -127,3 +127,40 @@ func TestEditTask(t *testing.T) {
 		t.Errorf("old title %q is still on the home page after edit", title)
 	}
 }
+
+// TestRecommendedSteps checks the whole pipeline: the server publishes a
+// "created" event, the worker consumes it and stores steps, the page shows them.
+func TestRecommendedSteps(t *testing.T) {
+	title := fmt.Sprintf("steps-test-%d", time.Now().UnixNano())
+	body := createTask(t, title)
+	id := findTaskID(t, body, title)
+
+	// "steps pending" is the placeholder; a bare "steps" class means the worker filled it in.
+	done := regexp.MustCompile(regexp.QuoteMeta(id) + `">Delete</a>\s*<p class="steps">`)
+
+	// Longer than Kafka's default 45s session timeout: if a previous worker died
+	// without leaving the group, the new one isn't assigned the partition until then.
+	const timeout = 60 * time.Second
+	deadline := time.Now().Add(timeout)
+	for {
+		// Tasks are listed oldest first, so the new one is on the last page;
+		// asking for a page past the end redirects there.
+		resp, err := http.Get(baseURL + "/?page=1000000")
+		if err != nil {
+			t.Fatalf("get home page: %v", err)
+		}
+		page, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if done.Match(page) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no recommended steps for task %s after %s; is the worker running?", id, timeout)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
