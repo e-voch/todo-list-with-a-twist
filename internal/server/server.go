@@ -5,7 +5,9 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"todo/internal/task"
 	"todo/web"
@@ -29,6 +31,7 @@ type Publisher interface {
 // homePage is the data the home template renders.
 type homePage struct {
 	Tasks    []task.Task
+	Query    string // the search box contents; empty shows every task
 	Page     int
 	PrevPage int // 0 when there is no previous page
 	NextPage int // 0 when there is no next page
@@ -79,12 +82,13 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 			return
 		}
 
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
 		page, err := strconv.Atoi(r.URL.Query().Get("page"))
 		if err != nil || page < 1 {
 			page = 1
 		}
 
-		total, err := store.Count()
+		total, err := store.Count(query)
 		if err != nil {
 			slog.Error("count failed", "err", err)
 			http.Error(w, "could not load tasks", http.StatusInternalServerError)
@@ -94,20 +98,20 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		// A page past the end goes to the last page; with no tasks that is page 1.
 		lastPage := max(1, (total+pageSize-1)/pageSize)
 		if page > lastPage {
-			http.Redirect(w, r, "/?page="+strconv.Itoa(lastPage), http.StatusSeeOther)
+			http.Redirect(w, r, homeURL(query, lastPage), http.StatusSeeOther)
 			return
 		}
 
 		offset := (page - 1) * pageSize
 
-		taskList, err := store.List(pageSize, offset)
+		taskList, err := store.List(query, pageSize, offset)
 		if err != nil {
 			slog.Error("list failed", "err", err)
 			http.Error(w, "could not load tasks", http.StatusInternalServerError)
 			return
 		}
 
-		data := homePage{Tasks: taskList, Page: page}
+		data := homePage{Tasks: taskList, Query: query, Page: page}
 		if page > 1 {
 			data.PrevPage = page - 1
 		}
@@ -119,6 +123,15 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 			slog.Error("render failed", "err", err)
 		}
 	}
+}
+
+// homeURL links to page of the home page, keeping the search query if any.
+func homeURL(query string, page int) string {
+	v := url.Values{"page": {strconv.Itoa(page)}}
+	if query != "" {
+		v.Set("q", query)
+	}
+	return "/?" + v.Encode()
 }
 
 func notFoundHandler(w http.ResponseWriter, r *http.Request) {
