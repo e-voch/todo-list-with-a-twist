@@ -86,7 +86,7 @@ func newTestStore(t *testing.T) *PostgresStore {
 func Test_Postgres_List_Empty(t *testing.T) {
 	store := newTestStore(t)
 
-	tasks, err := store.List(100, 0)
+	tasks, err := store.List("", 100, 0)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -110,7 +110,7 @@ func Test_Postgres_List(t *testing.T) {
 		t.Fatalf("Create task 2: %v", err)
 	}
 
-	tasks, err := store.List(100, 0)
+	tasks, err := store.List("", 100, 0)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -176,7 +176,7 @@ func Test_Postgres_Create_Idempotent(t *testing.T) {
 		t.Errorf("after second Create, Get(%s) = %v, want %v", id, got, want)
 	}
 
-	list, err := store.List(100, 0)
+	list, err := store.List("", 100, 0)
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
@@ -192,7 +192,7 @@ func Test_Postgres_List_OldestFirst(t *testing.T) {
 		want = append(want, createTask(t, store, title, "Description"))
 	}
 
-	list, err := store.List(100, 0)
+	list, err := store.List("", 100, 0)
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
@@ -228,7 +228,7 @@ func Test_pagination_List(t *testing.T) {
 		{ID: id4, Title: "Gym", Description: "30 minutes at the gym"},
 	}
 
-	got, err := store.List(2, 2)
+	got, err := store.List("", 2, 2)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -243,7 +243,7 @@ func Test_Postgres_Count(t *testing.T) {
 	createTask(t, store, "One", "Description")
 	createTask(t, store, "Two", "Description")
 
-	got, err := store.Count()
+	got, err := store.Count("")
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
@@ -276,8 +276,8 @@ func Test_Postgres_Update(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	// Update must not touch the steps; the worker regenerates them on "edited".
-	want := task.Task{ID: id, Title: "buy oat milk", Description: "1 litre", RecommendedSteps: "go to the shop"}
+	// Update clears the steps; the worker regenerates them on "edited".
+	want := task.Task{ID: id, Title: "buy oat milk", Description: "1 litre", RecommendedSteps: ""}
 	if got != want {
 		t.Errorf("after Update, Get(%s) = %v, want %v", id, got, want)
 	}
@@ -315,5 +315,47 @@ func Test_Postgres_Delete_NotFound(t *testing.T) {
 	err := store.Delete(uuid.New())
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func Test_Postgres_List_Search(t *testing.T) {
+	store := newTestStore(t)
+	milk := createTask(t, store, "Buy MILK", "2 litres")
+	walk := createTask(t, store, "Walk dog", "then buy milk on the way")
+	createTask(t, store, "Gym", "30 minutes")
+	discount := createTask(t, store, "Sale", "50% off")
+	createTask(t, store, "Sale", "500 off")
+
+	tests := []struct {
+		query string
+		want  []uuid.UUID
+	}{
+		{"milk", []uuid.UUID{milk, walk}}, // title or description, any case
+		{"nothing like this", nil},
+		{"0%", []uuid.UUID{discount}}, // % is matched literally, not as a wildcard
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			got, err := store.List(tt.query, 100, 0)
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			var ids []uuid.UUID
+			for _, task := range got {
+				ids = append(ids, task.ID)
+			}
+			if !slices.Equal(ids, tt.want) {
+				t.Errorf("List(%q) IDs = %v, want %v", tt.query, ids, tt.want)
+			}
+
+			n, err := store.Count(tt.query)
+			if err != nil {
+				t.Fatalf("Count: %v", err)
+			}
+			if n != len(tt.want) {
+				t.Errorf("Count(%q) = %d, want %d", tt.query, n, len(tt.want))
+			}
+		})
 	}
 }

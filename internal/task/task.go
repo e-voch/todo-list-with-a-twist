@@ -17,9 +17,11 @@ type Store interface {
 	Delete(id uuid.UUID) error
 	Get(id uuid.UUID) (Task, error)
 	// List returns up to limit tasks, oldest first, skipping the first offset.
-	List(limit, offset int) ([]Task, error)
-	// Count returns the total number of tasks.
-	Count() (int, error)
+	// A non-empty query keeps only tasks whose title or description contains
+	// it, ignoring case.
+	List(query string, limit, offset int) ([]Task, error)
+	// Count returns the number of tasks List would return for query with no limit.
+	Count(query string) (int, error)
 }
 
 type EventType string
