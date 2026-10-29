@@ -40,6 +40,29 @@ func Test_faviconHandler(t *testing.T) {
 	}
 }
 
+func Test_limitURLLength(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	h := limitURLLength(next)
+
+	tests := []struct {
+		name string
+		url  string
+		want int
+	}{
+		{"at limit", "/" + strings.Repeat("a", maxURLLength-1), http.StatusOK},
+		{"over limit", "/" + strings.Repeat("a", maxURLLength), http.StatusRequestURITooLong},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.url, nil))
+			if rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
+	}
+}
+
 func Test_homeHandler_Create(t *testing.T) {
 	store := newFakeStore()
 	pub := &fakePublisher{}
