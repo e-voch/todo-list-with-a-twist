@@ -12,7 +12,7 @@
     <section>
         <h2>Tasks</h2>
         <form class="search" method="GET" action="/">
-            <input type="text" name="q" value="{{ .Query }}" placeholder="Search tasks" aria-label="Search tasks by title or description">
+            <input type="text" name="q" value="{{ .Query }}" maxlength="100" placeholder="Search tasks" aria-label="Search tasks by title or description">
             <input type="submit" value="Search">
             {{ if .Query }}<a href="/">Clear</a>{{ end }}
         </form>

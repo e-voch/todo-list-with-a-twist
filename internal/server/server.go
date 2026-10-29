@@ -23,6 +23,9 @@ var (
 // pageSize is how many tasks the home page shows at once.
 const pageSize = 10
 
+// maxURLLength is the longest request target (path plus query) the server accepts.
+const maxURLLength = 128
+
 // Publisher sends task events to the queue. *queue.Producer satisfies it.
 type Publisher interface {
 	Publish(e task.EventMessage) error
@@ -52,7 +55,19 @@ func NewHandler(store task.Store, pub Publisher) http.Handler {
 	mux.HandleFunc("/edit/", editHandler(store, pub))
 	mux.HandleFunc("/{$}", homeHandler(store, pub))
 	mux.HandleFunc("/", notFoundHandler)
-	return mux
+	return limitURLLength(mux)
+}
+
+// limitURLLength rejects requests whose URL is longer than maxURLLength.
+func limitURLLength(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(r.RequestURI) > maxURLLength {
+			slog.Warn("url too long", "length", len(r.RequestURI))
+			http.Error(w, "URL too long", http.StatusRequestURITooLong)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
