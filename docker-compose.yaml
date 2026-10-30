@@ -95,11 +95,22 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       DATABASE_URL: postgres://todo:todo@postgres:5432/todo?sslmode=disable
+      REDIS_ADDR: redis:6379
     depends_on:
       migrate:
         condition: service_completed_successfully
       kafka-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:8
+    container_name: todo-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+
 
   worker:
     container_name: todo-worker
@@ -109,11 +120,14 @@ services:
     command: ["-brokers", "broker:29092"]
     environment:
       DATABASE_URL: postgres://todo:todo@postgres:5432/todo?sslmode=disable
+      REDIS_ADDR: redis:6379
     depends_on:
       migrate:
         condition: service_completed_successfully
       kafka-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_started
 
 
 volumes:
