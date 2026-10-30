@@ -185,3 +185,42 @@ input[type="submit"] {
 input[type="submit"]:hover {
 	background: var(--primary-hover);
 }
+
+/* Page navigation sits centred under the task list and wraps on narrow screens. */
+nav.pages {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	align-items: center;
+	gap: 0.5rem;
+	margin-top: 1rem;
+	font-size: 0.9rem;
+}
+
+nav.pages a,
+nav.pages span {
+	min-width: 2rem;
+	padding: 0.25rem 0.5rem;
+	border-radius: 6px;
+	text-align: center;
+}
+
+nav.pages a {
+	color: var(--primary);
+	font-weight: 600;
+	text-decoration: none;
+}
+
+nav.pages a:hover {
+	background: var(--bg);
+}
+
+nav.pages [aria-current="page"] {
+	color: #fff;
+	background: var(--primary);
+	font-weight: 600;
+}
+
+nav.pages .gap {
+	color: var(--muted);
+}
