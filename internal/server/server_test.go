@@ -41,6 +41,29 @@ func Test_faviconHandler(t *testing.T) {
 	}
 }
 
+func Test_limitURLLength(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	h := limitURLLength(next)
+
+	tests := []struct {
+		name string
+		url  string
+		want int
+	}{
+		{"at limit", "/" + strings.Repeat("a", maxURLLength-1), http.StatusOK},
+		{"over limit", "/" + strings.Repeat("a", maxURLLength), http.StatusRequestURITooLong},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.url, nil))
+			if rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
+	}
+}
+
 func Test_homeHandler_Create(t *testing.T) {
 	store := newFakeStore()
 	pub := &fakePublisher{}
@@ -256,7 +279,7 @@ func (s *fakeStore) Update(id uuid.UUID, title, description string) error {
 	if i < 0 {
 		return storage.ErrNotFound
 	}
-	s.tasks[i].Title, s.tasks[i].Description = title, description
+	s.tasks[i].Title, s.tasks[i].Description, s.tasks[i].RecommendedSteps = title, description, ""
 	return nil
 }
 
@@ -277,14 +300,28 @@ func (s *fakeStore) Get(id uuid.UUID) (task.Task, error) {
 	return s.tasks[i], nil
 }
 
-func (s *fakeStore) List(limit, offset int) ([]task.Task, error) {
-	// Clamp both ends like SQL does: an offset past the end gives an empty page.
-	start := min(offset, len(s.tasks))
-	end := min(start+limit, len(s.tasks))
-	return slices.Clone(s.tasks[start:end]), nil
+// matching returns the tasks whose title or description contains query,
+// ignoring case, like the ILIKE in PostgresStore.
+func (s *fakeStore) matching(query string) []task.Task {
+	q := strings.ToLower(query)
+	var out []task.Task
+	for _, t := range s.tasks {
+		if strings.Contains(strings.ToLower(t.Title), q) || strings.Contains(strings.ToLower(t.Description), q) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
-func (s *fakeStore) Count() (int, error) { return len(s.tasks), nil }
+func (s *fakeStore) List(query string, limit, offset int) ([]task.Task, error) {
+	tasks := s.matching(query)
+	// Clamp both ends like SQL does: an offset past the end gives an empty page.
+	start := min(offset, len(tasks))
+	end := min(start+limit, len(tasks))
+	return slices.Clone(tasks[start:end]), nil
+}
+
+func (s *fakeStore) Count(query string) (int, error) { return len(s.matching(query)), nil }
 
 // failingStore is a Store whose every method fails, for testing how
 // handlers react to storage errors.
@@ -296,8 +333,10 @@ func (failingStore) Create(id uuid.UUID, title, description string) error { retu
 func (failingStore) Update(id uuid.UUID, title, description string) error { return errStoreDown }
 func (failingStore) Delete(id uuid.UUID) error                            { return errStoreDown }
 func (failingStore) Get(id uuid.UUID) (task.Task, error)                  { return task.Task{}, errStoreDown }
-func (failingStore) List(limit, offset int) ([]task.Task, error)          { return nil, errStoreDown }
-func (failingStore) Count() (int, error)                                  { return 0, errStoreDown }
+func (failingStore) List(query string, limit, offset int) ([]task.Task, error) {
+	return nil, errStoreDown
+}
+func (failingStore) Count(query string) (int, error) { return 0, errStoreDown }
 
 // fakePublisher records published events instead of sending them to Kafka.
 type fakePublisher struct {
@@ -382,7 +421,7 @@ func Test_handlers_PublishError(t *testing.T) {
 	}
 
 	// After create, edit and delete of the original, only the new task is left.
-	tasks, err := store.List(100, 0)
+	tasks, err := store.List("", 100, 0)
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
@@ -444,6 +483,89 @@ func Test_homeHandler_Pagination(t *testing.T) {
 	}
 }
 
+func Test_homeHandler_Search(t *testing.T) {
+	store := newFakeStore()
+	for i := range pageSize + 1 {
+		if err := store.Create(uuid.Must(uuid.NewV7()), fmt.Sprintf("Buy item %d", i), "Shop"); err != nil {
+			t.Fatalf("Create returned error: %v", err)
+		}
+	}
+	if err := store.Create(uuid.Must(uuid.NewV7()), "Walk", "Dog"); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		url      string
+		contains []string
+		excludes []string
+	}{
+		{
+			name:     "filters and keeps query in pagination",
+			url:      "/?q=buy",
+			contains: []string{"Buy item 0", `value="buy"`, `href="/?page=2&q=buy"`, `<a href="/?page=2&amp;q=buy">2</a>`},
+			excludes: []string{"Walk"},
+		},
+		{
+			name:     "second page of results",
+			url:      "/?q=buy&page=2",
+			contains: []string{"Buy item 10", `href="/?page=1&q=buy"`},
+			excludes: []string{"Walk", "Buy item 0 "},
+		},
+		{
+			name:     "no matches",
+			url:      "/?q=xyz",
+			contains: []string{"No tasks match"},
+			excludes: []string{"Buy", "Walk"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			rec := httptest.NewRecorder()
+
+			homeHandler(store, &fakePublisher{})(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			body := rec.Body.String()
+			for _, s := range tt.contains {
+				if !strings.Contains(body, s) {
+					t.Errorf("body does not contain %q; body = %s", s, body)
+				}
+			}
+			for _, s := range tt.excludes {
+				if strings.Contains(body, s) {
+					t.Errorf("body contains %q, want it filtered out", s)
+				}
+			}
+		})
+	}
+}
+
+// A page past the end of the results redirects to the last page of results,
+// not of all tasks.
+func Test_homeHandler_SearchPastEnd(t *testing.T) {
+	store := newFakeStore()
+	if err := store.Create(uuid.Must(uuid.NewV7()), "Buy", "Milk"); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/?q=buy&page=5", nil)
+	rec := httptest.NewRecorder()
+
+	homeHandler(store, &fakePublisher{})(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+	if loc, want := rec.Header().Get("Location"), "/?page=1&q=buy"; loc != want {
+		t.Errorf("redirect = %q, want %q", loc, want)
+	}
+}
+
 func Test_pageLinks(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -462,7 +584,7 @@ func Test_pageLinks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got []string
-			for _, l := range pageLinks(tt.current, tt.last, 2) {
+			for _, l := range pageLinks("", tt.current, tt.last, 2) {
 				switch {
 				case l.Number == 0:
 					got = append(got, "…")
@@ -471,8 +593,8 @@ func Test_pageLinks(t *testing.T) {
 				default:
 					got = append(got, strconv.Itoa(l.Number))
 				}
-				if l.Number != 0 && l.URL != pageURL(l.Number) {
-					t.Errorf("page %d URL = %q, want %q", l.Number, l.URL, pageURL(l.Number))
+				if want := homeURL("", l.Number); l.Number != 0 && l.URL != want {
+					t.Errorf("page %d URL = %q, want %q", l.Number, l.URL, want)
 				}
 			}
 			if s := strings.Join(got, " "); s != tt.want {
