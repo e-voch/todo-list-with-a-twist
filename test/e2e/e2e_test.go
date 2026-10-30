@@ -39,20 +39,42 @@ func createTask(t *testing.T, title string) string {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 
+	body := searchPage(t, title)
+	if !listed(body, title) {
+		t.Errorf("searching for the new task %q does not list it", title)
+	}
+	return body
+}
+
+// searchPage returns the home page filtered by query. Tests search for their
+// task's unique title, so it is found however many other tasks there are.
+func searchPage(t *testing.T, query string) string {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/?" + url.Values{"q": {query}}.Encode())
+	if err != nil {
+		t.Fatalf("search for %q: %v", query, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("search status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if !strings.Contains(string(body), title) {
-		t.Errorf("home page does not contain the new task %q", title)
-	}
 	return string(body)
+}
+
+// listed reports whether body lists a task with this title. A plain
+// strings.Contains is not enough: a search page also shows the query itself.
+func listed(body, title string) bool {
+	return strings.Contains(body, "<span>"+title+" : ")
 }
 
 func findTaskID(t *testing.T, body, title string) string {
 	t.Helper()
-	re := regexp.MustCompile(regexp.QuoteMeta(title) + `[^<]*<a href="/edit/\?id=([0-9a-f-]+)"`)
+	re := regexp.MustCompile(regexp.QuoteMeta(title) + `[^<]*</span>\s*<a href="/edit/\?id=([0-9a-f-]+)"`)
 	m := re.FindStringSubmatch(body)
 	if m == nil {
 		t.Fatalf("task %q not found on the home page", title)
@@ -87,16 +109,10 @@ func TestDeleteTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete task: %v", err)
 	}
+	resp.Body.Close()
 
-	defer resp.Body.Close()
-
-	after, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if strings.Contains(string(after), title) {
-		t.Errorf("task %q is still on the home page after delete", title)
+	if listed(searchPage(t, title), title) {
+		t.Errorf("task %q is still listed after delete", title)
 	}
 }
 
@@ -111,19 +127,49 @@ func TestEditTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("edit task: %v", err)
 	}
+	resp.Body.Close()
 
-	defer resp.Body.Close()
-
-	after, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
+	if !listed(searchPage(t, newTitle), newTitle) {
+		t.Errorf("edited title %q is not listed", newTitle)
 	}
-
-	if !strings.Contains(string(after), newTitle) {
-		t.Errorf("edited title %q not on the home page", newTitle)
+	if listed(searchPage(t, title), title) {
+		t.Errorf("old title %q is still listed after edit", title)
 	}
+}
 
-	if strings.Contains(string(after), title) {
-		t.Errorf("old title %q is still on the home page after edit", title)
+// TestRecommendedSteps checks the whole pipeline: the server publishes a
+// "created" event, the worker consumes it and stores steps, the page shows them.
+func TestRecommendedSteps(t *testing.T) {
+	title := fmt.Sprintf("steps-test-%d", time.Now().UnixNano())
+	body := createTask(t, title)
+	id := findTaskID(t, body, title)
+
+	// "steps pending" is the placeholder; a bare "steps" class means the worker filled it in.
+	done := regexp.MustCompile(regexp.QuoteMeta(id) + `">Delete</a>\s*<p class="steps">`)
+
+	// Longer than Kafka's default 45s session timeout: if a previous worker died
+	// without leaving the group, the new one isn't assigned the partition until then.
+	const timeout = 60 * time.Second
+	deadline := time.Now().Add(timeout)
+	for {
+		// Tasks are listed oldest first, so the new one is on the last page;
+		// asking for a page past the end redirects there.
+		resp, err := http.Get(baseURL + "/?page=1000000")
+		if err != nil {
+			t.Fatalf("get home page: %v", err)
+		}
+		page, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if done.Match(page) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no recommended steps for task %s after %s; is the worker running?", id, timeout)
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 }

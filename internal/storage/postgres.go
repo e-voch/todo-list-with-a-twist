@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"todo/internal/task"
 
 	"github.com/google/uuid"
@@ -34,8 +35,17 @@ func (p *PostgresStore) Close() error {
 	return p.db.Close()
 }
 
-func (p *PostgresStore) List(limit, offset int) ([]task.Task, error) {
-	rows, err := p.db.Query(`SELECT uuid, title, description, COALESCE(recommended_steps, '') FROM tasks ORDER BY id LIMIT $1 OFFSET $2`, limit, offset)
+// likePattern turns a search query into an ILIKE pattern that matches it
+// anywhere. %, _ and \ in the query are escaped so they match literally; an
+// empty query becomes "%%", which matches every task.
+func likePattern(query string) string {
+	return "%" + likeEscaper.Replace(query) + "%"
+}
+
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func (p *PostgresStore) List(query string, limit, offset int) ([]task.Task, error) {
+	rows, err := p.db.Query(`SELECT uuid, title, description, COALESCE(recommended_steps, '') FROM tasks WHERE title ILIKE $1 OR description ILIKE $1 ORDER BY id LIMIT $2 OFFSET $3`, likePattern(query), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -77,7 +87,7 @@ func (p *PostgresStore) Create(id uuid.UUID, title, description string) error {
 }
 
 func (p *PostgresStore) Update(id uuid.UUID, title, description string) error {
-	res, err := p.db.Exec(`UPDATE tasks SET title = $2, description = $3 WHERE uuid = $1`, id, title, description)
+	res, err := p.db.Exec(`UPDATE tasks SET title = $2, description = $3, recommended_steps = NULL WHERE uuid = $1`, id, title, description)
 	if err != nil {
 		return fmt.Errorf("update task %s: %w", id, err)
 	}
@@ -111,9 +121,9 @@ func checkFound(res sql.Result, id uuid.UUID) error {
 	return nil
 }
 
-func (p *PostgresStore) Count() (int, error) {
+func (p *PostgresStore) Count(query string) (int, error) {
 	var c int
-	err := p.db.QueryRow(`SELECT COUNT(*) FROM tasks`).
+	err := p.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE title ILIKE $1 OR description ILIKE $1`, likePattern(query)).
 		Scan(&c)
 	if err != nil {
 		return 0, fmt.Errorf("count tasks: %w", err)
