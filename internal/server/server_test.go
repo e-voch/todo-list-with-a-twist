@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -418,8 +419,8 @@ func Test_homeHandler_Pagination(t *testing.T) {
 		wantIn  []string
 		wantOut []string
 	}{
-		{"first page", "/", []string{"Task 00", "?page=2"}, []string{"Task 10", "?page=0"}},
-		{"second page", "/?page=2", []string{"Task 10", "?page=1"}, []string{"Task 00", "?page=3"}},
+		{"first page", "/", []string{"Task 00", "?page=2", `<span aria-current="page">1</span>`}, []string{"Task 10", "?page=0"}},
+		{"second page", "/?page=2", []string{"Task 10", "?page=1", `<span aria-current="page">2</span>`}, []string{"Task 00", "?page=3"}},
 		{"bad page falls back to 1", "/?page=abc", []string{"Task 00"}, []string{"Task 10"}},
 	}
 
@@ -440,5 +441,57 @@ func Test_homeHandler_Pagination(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func Test_pageLinks(t *testing.T) {
+	tests := []struct {
+		name          string
+		current, last int
+		want          string // gaps as "…", the current page in brackets
+	}{
+		{"single page", 1, 1, "[1]"},
+		{"fits without gaps", 3, 5, "1 2 [3] 4 5"},
+		{"first page", 1, 20, "[1] 2 3 … 20"},
+		{"last page", 20, 20, "1 … 18 19 [20]"},
+		{"middle", 10, 20, "1 … 8 9 [10] 11 12 … 20"},
+		{"one hidden page is shown", 5, 20, "1 2 3 4 [5] 6 7 … 20"},
+		{"two hidden pages become a gap", 6, 20, "1 … 4 5 [6] 7 8 … 20"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, l := range pageLinks(tt.current, tt.last, 2) {
+				switch {
+				case l.Number == 0:
+					got = append(got, "…")
+				case l.Current:
+					got = append(got, fmt.Sprintf("[%d]", l.Number))
+				default:
+					got = append(got, strconv.Itoa(l.Number))
+				}
+				if l.Number != 0 && l.URL != pageURL(l.Number) {
+					t.Errorf("page %d URL = %q, want %q", l.Number, l.URL, pageURL(l.Number))
+				}
+			}
+			if s := strings.Join(got, " "); s != tt.want {
+				t.Errorf("pageLinks(%d, %d) = %q, want %q", tt.current, tt.last, s, tt.want)
+			}
+		})
+	}
+}
+
+func Test_homeHandler_NoPageNavForOnePage(t *testing.T) {
+	store := newFakeStore()
+	if err := store.Create(uuid.Must(uuid.NewV7()), "Only task", "Description"); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	homeHandler(store, &fakePublisher{})(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if strings.Contains(rec.Body.String(), "<nav") {
+		t.Errorf("rendered page navigation for a single page")
 	}
 }

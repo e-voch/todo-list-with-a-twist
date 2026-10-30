@@ -25,11 +25,17 @@
             </li>
         {{ end }}
         </ul>
-        <nav>
+        {{ if .Pages }}
+        <nav class="pages" aria-label="Pages">
             {{ if .PrevPage }}<a href="/?page={{ .PrevPage }}">Previous</a>{{ end }}
-            Page {{ .Page }}
+            {{ range .Pages }}
+                {{ if not .Number }}<span class="gap">…</span>
+                {{ else if .Current }}<span aria-current="page">{{ .Number }}</span>
+                {{ else }}<a href="{{ .URL }}">{{ .Number }}</a>{{ end }}
+            {{ end }}
             {{ if .NextPage }}<a href="/?page={{ .NextPage }}">Next</a>{{ end }}
         </nav>
+        {{ end }}
     </section>
 
     <section>

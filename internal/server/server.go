@@ -26,12 +26,47 @@ type Publisher interface {
 	Publish(e task.EventMessage) error
 }
 
+// pageWindow is how many pages either side of the current one get a link.
+const pageWindow = 2
+
+// pageLink is one entry in the page navigation. A zero Number is a gap ("…").
+type pageLink struct {
+	Number  int
+	URL     string
+	Current bool
+}
+
 // homePage is the data the home template renders.
 type homePage struct {
 	Tasks    []task.Task
 	Page     int
-	PrevPage int // 0 when there is no previous page
-	NextPage int // 0 when there is no next page
+	PrevPage int        // 0 when there is no previous page
+	NextPage int        // 0 when there is no next page
+	Pages    []pageLink // empty when everything fits on one page
+}
+
+// pageLinks lists the first and last pages plus window pages either side of
+// current, with gaps between them. A gap that would hide a single page shows
+// that page instead.
+func pageLinks(current, last, window int) []pageLink {
+	shown := func(p int) bool {
+		return p == 1 || p == last || (p >= current-window && p <= current+window)
+	}
+	var links []pageLink
+	for p := 1; p <= last; p++ {
+		switch {
+		case shown(p), shown(p-1) && shown(p+1):
+			links = append(links, pageLink{Number: p, URL: pageURL(p), Current: p == current})
+		case shown(p - 1):
+			links = append(links, pageLink{}) // gap
+		}
+	}
+	return links
+}
+
+// pageURL links to page of the home page.
+func pageURL(page int) string {
+	return "/?page=" + strconv.Itoa(page)
 }
 
 // NewHandler returns the application's HTTP routes. Reads and writes go to
@@ -94,7 +129,7 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		// A page past the end goes to the last page; with no tasks that is page 1.
 		lastPage := max(1, (total+pageSize-1)/pageSize)
 		if page > lastPage {
-			http.Redirect(w, r, "/?page="+strconv.Itoa(lastPage), http.StatusSeeOther)
+			http.Redirect(w, r, pageURL(lastPage), http.StatusSeeOther)
 			return
 		}
 
@@ -113,6 +148,9 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		}
 		if offset+pageSize < total {
 			data.NextPage = page + 1
+		}
+		if lastPage > 1 {
+			data.Pages = pageLinks(page, lastPage, pageWindow)
 		}
 
 		if err := homeTmpl.Execute(w, data); err != nil {
