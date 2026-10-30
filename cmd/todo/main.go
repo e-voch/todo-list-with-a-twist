@@ -5,10 +5,14 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
+	"todo/internal/cache"
 	"todo/internal/queue"
 	"todo/internal/server"
 	"todo/internal/storage"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -23,6 +27,11 @@ func main() {
 	}
 	defer store.Close()
 
+	// An empty REDIS_ADDR means localhost:6379.
+	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("REDIS_ADDR")})
+	defer rdb.Close()
+	cached := cache.New(store, rdb, time.Minute)
+
 	producer, err := queue.NewProducer(*brokers, *topic)
 	if err != nil {
 		slog.Error("failed to create producer", "err", err)
@@ -31,7 +40,7 @@ func main() {
 	defer producer.Close()
 
 	slog.Info("Server is running on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", server.NewHandler(store, producer)); err != nil {
+	if err := http.ListenAndServe(":8080", server.NewHandler(cached, producer)); err != nil {
 		slog.Error("server failed", "err", err)
 		os.Exit(1)
 	}

@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 
+	"todo/internal/cache"
 	"todo/internal/queue"
 	"todo/internal/storage"
 	"todo/internal/task"
@@ -21,6 +23,21 @@ const loremIpsum = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed
 
 type StepsWriter interface {
 	SetRecommendedSteps(id uuid.UUID, steps string) error
+}
+
+// invalidatingWriter clears the app's page cache after each successful write,
+// so the home page shows new steps straight away.
+type invalidatingWriter struct {
+	StepsWriter
+	rdb *redis.Client
+}
+
+func (w invalidatingWriter) SetRecommendedSteps(id uuid.UUID, steps string) error {
+	if err := w.StepsWriter.SetRecommendedSteps(id, steps); err != nil {
+		return err
+	}
+	cache.Invalidate(w.rdb)
+	return nil
 }
 
 func main() {
@@ -35,6 +52,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
+
+	// An empty REDIS_ADDR means localhost:6379.
+	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("REDIS_ADDR")})
+	defer rdb.Close()
+	writer := invalidatingWriter{StepsWriter: store, rdb: rdb}
 
 	consumer, err := queue.NewConsumer(*brokers, *group, *topic)
 	if err != nil {
@@ -58,7 +80,7 @@ func main() {
 		}
 
 		for {
-			err := handle(store, msg.Event)
+			err := handle(writer, msg.Event)
 			if err == nil {
 				break
 			}
