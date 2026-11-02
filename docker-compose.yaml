@@ -111,7 +111,6 @@ services:
       - "127.0.0.1:6379:6379"
     command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
 
-
   worker:
     container_name: todo-worker
     build:
@@ -129,7 +128,18 @@ services:
       redis:
         condition: service_started
 
+  lint:
+    image: golangci/golangci-lint:v2.15.0
+    container_name: todo-lint
+    profiles: ["tools"]
+    working_dir: /src
+    command: ["golangci-lint", "run", "./..."]
+    volumes:
+      - .:/src:ro
+      - lint_cache:/root/.cache
+
 
 volumes:
+  lint_cache:
   kafka_kraft:
   pg_data:

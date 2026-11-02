@@ -39,14 +39,20 @@ func TestMain(m *testing.M) {
 	addrs, err := container.Brokers(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "get kafka brokers:", err)
-		testcontainers.TerminateContainer(container)
+		terminate(container)
 		os.Exit(1)
 	}
 	brokers = strings.Join(addrs, ",")
 
 	code := m.Run()
-	testcontainers.TerminateContainer(container)
+	terminate(container)
 	os.Exit(code)
+}
+
+func terminate(ctr testcontainers.Container) {
+	if err := testcontainers.TerminateContainer(ctr); err != nil {
+		fmt.Fprintln(os.Stderr, "terminate kafka container:", err)
+	}
 }
 
 func skipIfShort(t *testing.T) {
@@ -100,6 +106,13 @@ func newConsumer(t *testing.T, topic, group string) *Consumer {
 	return c
 }
 
+func closeConsumer(t *testing.T, c *Consumer) {
+	t.Helper()
+	if err := c.Close(); err != nil {
+		t.Errorf("close consumer: %v", err)
+	}
+}
+
 func newEvent(title string) task.EventMessage {
 	return task.EventMessage{
 		Type: task.EventCreated,
@@ -137,7 +150,7 @@ func Test_PublishAndRead(t *testing.T) {
 	topic := newTopic(t)
 	p := newProducer(t, topic)
 	c := newConsumer(t, topic, uuid.NewString())
-	defer c.Close()
+	defer closeConsumer(t, c)
 
 	want := newEvent("Buy")
 	if err := p.Publish(want); err != nil {
@@ -155,7 +168,7 @@ func Test_ReadKeepsOrder(t *testing.T) {
 	topic := newTopic(t)
 	p := newProducer(t, topic)
 	c := newConsumer(t, topic, uuid.NewString())
-	defer c.Close()
+	defer closeConsumer(t, c)
 
 	var want []task.EventMessage
 	for i := range 5 {
@@ -191,10 +204,10 @@ func Test_UncommittedIsRedelivered(t *testing.T) {
 	if got := readEvent(t, first); got.Event != want {
 		t.Fatalf("first read = %v, want %v", got.Event, want)
 	}
-	first.Close() // "crash" before Commit
+	closeConsumer(t, first) // "crash" before Commit
 
 	second := newConsumer(t, topic, group)
-	defer second.Close()
+	defer closeConsumer(t, second)
 	if got := readEvent(t, second); got.Event != want {
 		t.Errorf("after restart without commit, read = %v, want the same event %v", got.Event, want)
 	}
@@ -222,10 +235,10 @@ func Test_CommittedIsNotRedelivered(t *testing.T) {
 	if err := first.Commit(msg); err != nil {
 		t.Fatalf("Commit returned error: %v", err)
 	}
-	first.Close()
+	closeConsumer(t, first)
 
 	second := newConsumer(t, topic, group)
-	defer second.Close()
+	defer closeConsumer(t, second)
 	if got := readEvent(t, second); got.Event != next {
 		t.Errorf("after commit and restart, read = %v, want the next event %v", got.Event, next)
 	}
@@ -234,7 +247,7 @@ func Test_CommittedIsNotRedelivered(t *testing.T) {
 func Test_ReadTimeout(t *testing.T) {
 	skipIfShort(t)
 	c := newConsumer(t, newTopic(t), uuid.NewString())
-	defer c.Close()
+	defer closeConsumer(t, c)
 
 	msg, err := c.Read(2 * time.Second)
 	if err != nil {
@@ -268,7 +281,7 @@ func Test_ReadBadMessage(t *testing.T) {
 	}
 
 	c := newConsumer(t, topic, uuid.NewString())
-	defer c.Close()
+	defer closeConsumer(t, c)
 	if _, err := readNext(t, c); err == nil {
 		t.Error("Read of a non-JSON message returned nil error, want a decode error")
 	}

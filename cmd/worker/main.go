@@ -51,11 +51,19 @@ func main() {
 		slog.Error("failed to connect to postgres", "err", err)
 		os.Exit(1)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			slog.Error("close store", "err", err)
+		}
+	}()
 
 	// An empty REDIS_ADDR means localhost:6379.
 	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("REDIS_ADDR")})
-	defer rdb.Close()
+	defer func() {
+		if err := rdb.Close(); err != nil {
+			slog.Error("close redis", "err", err)
+		}
+	}()
 	writer := invalidatingWriter{StepsWriter: store, rdb: rdb}
 
 	consumer, err := queue.NewConsumer(*brokers, *group, *topic)
@@ -63,7 +71,11 @@ func main() {
 		slog.Error("failed to create consumer", "err", err)
 		os.Exit(1)
 	}
-	defer consumer.Close()
+	defer func() {
+		if err := consumer.Close(); err != nil {
+			slog.Error("close consumer", "err", err)
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

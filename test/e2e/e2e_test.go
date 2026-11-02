@@ -18,7 +18,7 @@ func TestHomePage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("is the app running? (make up && make run): %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -33,7 +33,7 @@ func createTask(t *testing.T, title string) string {
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -54,7 +54,7 @@ func searchPage(t *testing.T, query string) string {
 	if err != nil {
 		t.Fatalf("search for %q: %v", query, err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("search status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -93,7 +93,7 @@ func TestNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("is the app running? (make up && make run): %v", err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp)
 
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
@@ -109,7 +109,7 @@ func TestDeleteTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delete task: %v", err)
 	}
-	resp.Body.Close()
+	closeBody(resp)
 
 	if listed(searchPage(t, title), title) {
 		t.Errorf("task %q is still listed after delete", title)
@@ -127,7 +127,7 @@ func TestEditTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("edit task: %v", err)
 	}
-	resp.Body.Close()
+	closeBody(resp)
 
 	if !listed(searchPage(t, newTitle), newTitle) {
 		t.Errorf("edited title %q is not listed", newTitle)
@@ -159,7 +159,7 @@ func TestRecommendedSteps(t *testing.T) {
 			t.Fatalf("get home page: %v", err)
 		}
 		page, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		closeBody(resp)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -172,4 +172,10 @@ func TestRecommendedSteps(t *testing.T) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+// closeBody closes resp's body. The body has already been read or isn't
+// needed, so a close error can't change the test result.
+func closeBody(resp *http.Response) {
+	_ = resp.Body.Close()
 }

@@ -32,7 +32,11 @@ func main() {
 		slog.Error("open database", "err", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Error("close database", "err", err)
+		}
+	}()
 
 	if err := db.Ping(); err != nil {
 		slog.Error("ping database", "err", err)

@@ -34,7 +34,7 @@ func NewConsumer(brokers, groupID, topic string) (*Consumer, error) {
 	}
 
 	if err := kc.SubscribeTopics([]string{topic}, nil); err != nil {
-		kc.Close()
+		_ = kc.Close()
 		return nil, fmt.Errorf("subscribe to %q: %w", topic, err)
 	}
 	return &Consumer{c: kc}, nil
