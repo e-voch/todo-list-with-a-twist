@@ -50,11 +50,8 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        image: [app, worker, migrate]
     env:
-      IMAGE: ghcr.io/e-voch/todo-list-with-a-twist-${{ matrix.image }}
+      IMAGE: ghcr.io/e-voch/todo-list-with-a-twist
     steps:
       - name: Checkout Code
         uses: actions/checkout@v7
@@ -68,10 +65,10 @@ jobs:
 
       - name: Build and Push Docker Image
         run: |
-          docker build -f "Dockerfile.${{ matrix.image }}" -t "$IMAGE:${{ needs.version.outputs.version }}" -t "$IMAGE:latest" .
+          docker build -t "$IMAGE:${{ needs.version.outputs.version }}" -t "$IMAGE:latest" .
           docker push --all-tags "$IMAGE"
 
-  # Release last, so a failed build doesn't leave a version with no images.
+  # Release last, so a failed build doesn't leave a version with no image.
   # Creating the release also creates the tag.
   release:
     name: Create GitHub Release
