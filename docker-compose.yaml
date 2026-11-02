@@ -68,9 +68,10 @@ services:
 
   migrate:
     container_name: todo-migrate
-    build:
-      context: .
-      dockerfile: Dockerfile.migrate
+    build: .
+    image: todo-list-with-a-twist:local
+    entrypoint: ["./migrate"]
+    command: ["up"]
     environment:
       DATABASE_URL: postgres://todo:todo@postgres:5432/todo?sslmode=disable
     depends_on:
@@ -87,9 +88,8 @@ services:
     
   app:
     container_name: todo-app
-    build:
-      context: .
-      dockerfile: Dockerfile.app
+    build: .
+    image: todo-list-with-a-twist:local
     command: ["-brokers", "broker:29092"]
     ports:
       - "127.0.0.1:8080:8080"
@@ -113,9 +113,9 @@ services:
 
   worker:
     container_name: todo-worker
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    build: .
+    image: todo-list-with-a-twist:local
+    entrypoint: ["./worker"]
     command: ["-brokers", "broker:29092"]
     environment:
       DATABASE_URL: postgres://todo:todo@postgres:5432/todo?sslmode=disable
