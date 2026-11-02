@@ -2,10 +2,10 @@
 changelog:
   categories:
     - title: Breaking Changes
-      labels: [major]
+      labels: [major, Major]
     - title: Features
-      labels: [minor]
+      labels: [minor, Minor]
     - title: Fixes
-      labels: [patch]
+      labels: [patch, Patch]
     - title: Other Changes
       labels: ["*"]
