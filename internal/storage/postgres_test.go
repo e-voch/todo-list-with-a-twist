@@ -36,21 +36,25 @@ func TestMain(m *testing.M) {
 
 	testURL, err = ctr.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		testcontainers.TerminateContainer(ctr)
+		terminate(ctr)
 		log.Fatalf("connection string: %v", err)
 	}
 
 	if err := migrate(ctx, testURL); err != nil {
-		testcontainers.TerminateContainer(ctr)
+		terminate(ctr)
 		log.Fatalf("migrate: %v", err)
 	}
 
 	code := m.Run()
 
+	terminate(ctr)
+	os.Exit(code)
+}
+
+func terminate(ctr testcontainers.Container) {
 	if err := testcontainers.TerminateContainer(ctr); err != nil {
 		log.Printf("terminate container: %v", err)
 	}
-	os.Exit(code)
 }
 
 func migrate(ctx context.Context, url string) error {
@@ -58,7 +62,7 @@ func migrate(ctx context.Context, url string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS)
 	if err != nil {
@@ -75,7 +79,11 @@ func newTestStore(t *testing.T) *PostgresStore {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
 
 	if _, err := store.db.Exec(`TRUNCATE tasks RESTART IDENTITY`); err != nil {
 		t.Fatalf("truncate: %v", err)

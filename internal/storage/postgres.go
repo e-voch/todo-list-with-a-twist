@@ -25,7 +25,7 @@ func NewPostgresStore(url string) (*PostgresStore, error) {
 
 	err = db.Ping()
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	return &PostgresStore{db: db}, nil
@@ -49,7 +49,7 @@ func (p *PostgresStore) List(query string, limit, offset int) ([]task.Task, erro
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	tasks := []task.Task{}
 	for rows.Next() {

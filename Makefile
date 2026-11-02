@@ -1,4 +1,4 @@
-.PHONY: help fmt vet build run test test-e2e coverage cover up down reset kafka migrate-status migrate-up migrate-down
+.PHONY: help fmt vet lint build run test test-e2e coverage cover up down reset kafka migrate-status migrate-up migrate-down
 
 DATABASE_URL = postgres://todo:todo@localhost:5432/todo?sslmode=disable
 UNIT_PKGS = $$(go list ./... | grep -v /test/e2e)
@@ -7,6 +7,7 @@ help:
 	@echo "Available targets:"
 	@echo "  fmt             format code"
 	@echo "  vet             vet code"
+	@echo "  lint            run golangci-lint in docker"
 	@echo "  build           build the binary into bin/todo"
 	@echo "  run             run the server"
 	@echo "  test            run unit and integration tests, skips e2e (bypasses cache)"
@@ -26,6 +27,9 @@ fmt:
 
 vet: fmt
 	go vet ./...
+
+lint:
+	docker compose run --rm lint
 
 build: vet
 	go build -o bin/todo ./cmd/todo
