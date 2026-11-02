@@ -1,0 +1,11 @@
+# Groups the auto-generated release notes by each PR's semver label.
+changelog:
+  categories:
+    - title: Breaking Changes
+      labels: [major, Major]
+    - title: Features
+      labels: [minor, Minor]
+    - title: Fixes
+      labels: [patch, Patch]
+    - title: Other Changes
+      labels: ["*"]

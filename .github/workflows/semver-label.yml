@@ -1,0 +1,42 @@
+name: Semver Label
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write
+
+jobs:
+  semver-label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # Labels are fetched rather than read from the event, because a re-run
+      # replays the event with the labels the PR had when it first ran.
+      - name: Require exactly one of major, minor, patch
+        id: label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bumps=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels \
+            --jq '[.[].name | ascii_downcase | select(. == "major" or . == "minor" or . == "patch")] | join(" ")')
+          if [ "$(wc -w <<< "$bumps")" -ne 1 ]; then
+            echo "::error::Add exactly one of the labels major, minor or patch (found: ${bumps:-none})"
+            exit 1
+          fi
+          echo "bump=$bumps" >> "$GITHUB_OUTPUT"
+
+      - name: Comment the version this PR will release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(.github/scripts/next-version.sh ${{ steps.label.outputs.bump }})
+          gh pr comment ${{ github.event.pull_request.number }} --edit-last --create-if-none \
+            --body "Merging this will release **v$version** (${{ steps.label.outputs.bump }})."
