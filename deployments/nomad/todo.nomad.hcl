@@ -26,7 +26,7 @@ job "todo" {
 
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:v1.1.1"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.1.1"
         entrypoint = ["./migrate"]
         args       = ["up"]
       }
@@ -48,8 +48,11 @@ EOF
     task "app" {
       driver = "docker"
       config {
-        image = "ghcr.io/e-voch/todo-list-with-a-twist:v1.1.1"
+        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.1.1"
         ports = ["http"]
+        # The app reads brokers from a flag, not an env var, so pass the
+        # KAFKA_BROKERS value that the template below sets.
+        args = ["-brokers", "${KAFKA_BROKERS}"]
       }
 
       template {
@@ -58,6 +61,34 @@ EOF
         data        = <<EOF
 {{ range nomadService "postgres" }}DATABASE_URL=postgres://todo:todo@{{ .Address }}:{{ .Port }}/todo?sslmode=disable{{ end }}
 {{ range nomadService "redis" }}REDIS_ADDR={{ .Address }}:{{ .Port }}{{ end }}
+{{ range nomadService "kafka" }}KAFKA_BROKERS={{ .Address }}:{{ .Port }}{{ end }}
+EOF
+      }
+
+      resources {
+        cpu    = 200
+        memory = 128
+      }
+    }
+  }
+
+  # A separate group, so Nomad can place and scale the worker independently of the app.
+  group "worker" {
+    task "worker" {
+      driver = "docker"
+      config {
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.1.1"
+        entrypoint = ["./worker"]
+        args       = ["-brokers", "${KAFKA_BROKERS}"]
+      }
+
+      template {
+        destination = "local/env"
+        env         = true
+        data        = <<EOF
+{{ range nomadService "postgres" }}DATABASE_URL=postgres://todo:todo@{{ .Address }}:{{ .Port }}/todo?sslmode=disable{{ end }}
+{{ range nomadService "redis" }}REDIS_ADDR={{ .Address }}:{{ .Port }}{{ end }}
+{{ range nomadService "kafka" }}KAFKA_BROKERS={{ .Address }}:{{ .Port }}{{ end }}
 EOF
       }
 
