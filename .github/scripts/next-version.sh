@@ -3,7 +3,8 @@
 # Needs the tags fetched (actions/checkout with fetch-depth: 0).
 set -euo pipefail
 
-latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+# Only plain vX.Y.Z tags count; something like v1.2.0-rc1 would break the arithmetic below.
+latest=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
 IFS=. read -r major minor patch <<< "${latest:-v0.0.0}"
 major=${major#v}
 
