@@ -2,3 +2,4 @@ bin/
 out/
 *.db
 coverage.out
+.nomad-data/

@@ -5,18 +5,26 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
 
-const baseURL = "http://localhost:8080"
+// baseURL is where the app under test is listening. Set E2E_BASE_URL to test
+// a deployment other than local docker compose, e.g. the app on Nomad.
+var baseURL = func() string {
+	if u := os.Getenv("E2E_BASE_URL"); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	return "http://localhost:8080"
+}()
 
 func TestHomePage(t *testing.T) {
 	resp, err := http.Get(baseURL + "/")
 	if err != nil {
-		t.Fatalf("is the app running? (make up && make run): %v", err)
+		t.Fatalf("is the app running at %s? (make up, or set E2E_BASE_URL): %v", baseURL, err)
 	}
 	defer closeBody(resp)
 
@@ -91,7 +99,7 @@ func TestHomePageCreate(t *testing.T) {
 func TestNotFound(t *testing.T) {
 	resp, err := http.Get(baseURL + "/nope")
 	if err != nil {
-		t.Fatalf("is the app running? (make up && make run): %v", err)
+		t.Fatalf("is the app running at %s? (make up, or set E2E_BASE_URL): %v", baseURL, err)
 	}
 	defer closeBody(resp)
 
