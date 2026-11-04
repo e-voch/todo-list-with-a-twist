@@ -1,4 +1,4 @@
-job "todo" {
+job "app" {
   type = "service"
 
   group "app" {

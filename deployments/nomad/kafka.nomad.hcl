@@ -2,6 +2,13 @@ job "kafka" {
   type = "service"
 
   group "broker" {
+    # Like kafka_kraft in docker-compose.yaml: messages and the tasks topic
+    # survive the container being replaced.
+    volume "kafkadata" {
+      type   = "host"
+      source = "kafkadata"
+    }
+
     network {
       port "kafka" { to = 9092 }
     }
@@ -25,7 +32,15 @@ job "kafka" {
         ports = ["kafka"]
       }
 
+      volume_mount {
+        volume      = "kafkadata"
+        destination = "/var/lib/kafka/data"
+      }
+
       env {
+        # Without this Kafka writes to /tmp inside the container, not the volume.
+        KAFKA_LOG_DIRS = "/var/lib/kafka/data"
+
         CLUSTER_ID                     = "4L6g3nShT-eMCtK--X86sw"
         KAFKA_NODE_ID                  = "1"
         KAFKA_PROCESS_ROLES            = "broker,controller"
