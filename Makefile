@@ -1,12 +1,12 @@
 .PHONY: help fmt vet lint build run test test-e2e coverage cover up down reset kafka migrate-status migrate-up migrate-down \
-	nomad-agent nomad-up nomad-down nomad-reset nomad-status nomad-url test-e2e-nomad
+	nomad-agent nomad-volumes nomad-up nomad-down nomad-reset nomad-status nomad-url test-e2e-nomad
 
 DATABASE_URL = postgres://todo:todo@localhost:5432/todo?sslmode=disable
 UNIT_PKGS = $$(go list ./... | grep -v /test/e2e)
 
 NOMAD_DIR = deployments/nomad
 # Backing services first: the todo job reads their addresses when it starts.
-NOMAD_INFRA = postgres redis kafka
+NOMAD_INFRA = postgres postgres-replica redis kafka
 # Host volume folders for the Nomad jobs, the Nomad version of compose's named volumes.
 NOMAD_DATA = $(CURDIR)/.nomad-data
 
@@ -29,7 +29,8 @@ help:
 	@echo "  migrate-up      apply all pending database migrations"
 	@echo "  migrate-down    undo the last applied database migration"
 	@echo "  nomad-agent     start a local Nomad dev agent (blocks, run it in its own terminal)"
-	@echo "  nomad-up        deploy postgres, redis, kafka, then the todo app to Nomad"
+	@echo "  nomad-volumes   create the pgdata, pgdata-replica and kafkadata host volumes on a real cluster (once)"
+	@echo "  nomad-up        deploy postgres, its replica, redis, kafka, then the todo app to Nomad"
 	@echo "  nomad-down      stop and remove every Nomad job (keeps data)"
 	@echo "  nomad-reset     stop every Nomad job and DELETE all postgres and kafka data"
 	@echo "  nomad-status    show the status of every Nomad job"
@@ -95,15 +96,23 @@ migrate-down:
 # uid 1000, not as you, so its folder has to be writable by everyone. Postgres
 # starts as root and takes ownership of its folder itself.
 nomad-agent:
-	mkdir -p "$(NOMAD_DATA)/pgdata" "$(NOMAD_DATA)/kafkadata"
+	mkdir -p "$(NOMAD_DATA)/pgdata" "$(NOMAD_DATA)/pgdata-replica" "$(NOMAD_DATA)/kafkadata"
 	chmod 777 "$(NOMAD_DATA)/kafkadata"
 	sed 's|@DATA_DIR@|$(NOMAD_DATA)|g' $(NOMAD_DIR)/agent.hcl.tpl > "$(NOMAD_DATA)/agent.hcl"
 	nomad agent -dev -network-interface=docker0 -config="$(NOMAD_DATA)/agent.hcl"
+
+# On a real cluster there is no agent config to edit, so create the volumes
+# through the API instead. Run once; a second run fails because they exist.
+nomad-volumes:
+	nomad volume create $(NOMAD_DIR)/volumes/pgdata.volume.hcl
+	nomad volume create $(NOMAD_DIR)/volumes/pgdata-replica.volume.hcl
+	nomad volume create $(NOMAD_DIR)/volumes/kafkadata.volume.hcl
 
 # job run waits until each deployment is healthy, so the todo job starts
 # only after the services it looks up are registered
 nomad-up:
 	nomad job run deployments/nomad/postgres.nomad.hcl
+	nomad job run deployments/nomad/postgres-replica.nomad.hcl
 	nomad job run deployments/nomad/redis.nomad.hcl
 	nomad job run deployments/nomad/kafka.nomad.hcl
 	nomad job run deployments/nomad/app.nomad.hcl
@@ -116,7 +125,7 @@ nomad-down:
 # inside a container. Keeps the folders, which the running agent expects.
 nomad-reset: nomad-down
 	docker run --rm -v "$(NOMAD_DATA):/data" --entrypoint sh postgres:18 \
-		-c 'find /data/pgdata /data/kafkadata -mindepth 1 -delete'
+		-c 'find /data/pgdata /data/pgdata-replica /data/kafkadata -mindepth 1 -delete'
 
 nomad-status:
 	nomad job status

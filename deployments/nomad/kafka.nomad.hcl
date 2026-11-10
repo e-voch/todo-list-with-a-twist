@@ -7,6 +7,10 @@ job "kafka" {
     volume "kafkadata" {
       type   = "host"
       source = "kafkadata"
+      # Must match the volume's capability block (volumes/kafkadata.volume.hcl),
+      # or the scheduler finds no compatible volume.
+      access_mode     = "single-node-single-writer"
+      attachment_mode = "file-system"
     }
 
     network {

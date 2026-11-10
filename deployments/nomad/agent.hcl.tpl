@@ -11,6 +11,11 @@ client {
     read_only = false
   }
 
+  host_volume "pgdata-replica" {
+    path      = "@DATA_DIR@/pgdata-replica"
+    read_only = false
+  }
+
   host_volume "kafkadata" {
     path      = "@DATA_DIR@/kafkadata"
     read_only = false
