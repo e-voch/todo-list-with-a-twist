@@ -1,5 +1,6 @@
 .PHONY: help fmt vet lint build run test test-e2e coverage cover up down reset kafka migrate-status migrate-up migrate-down \
-	nomad-agent nomad-volumes nomad-up nomad-down nomad-reset nomad-status nomad-url test-e2e-nomad
+	nomad-agent nomad-volumes nomad-up nomad-down nomad-reset nomad-status nomad-url test-e2e-nomad \
+	nomad-elk-up nomad-elk-down nomad-kibana-url
 
 DATABASE_URL = postgres://todo:todo@localhost:5432/todo?sslmode=disable
 UNIT_PKGS = $$(go list ./... | grep -v /test/e2e)
@@ -7,6 +8,8 @@ UNIT_PKGS = $$(go list ./... | grep -v /test/e2e)
 NOMAD_DIR = deployments/nomad
 # Backing services first: the todo job reads their addresses when it starts.
 NOMAD_INFRA = postgres postgres-replica redis kafka
+# Elasticsearch first: kibana and filebeat read its address when they start.
+NOMAD_ELK = elasticsearch kibana filebeat
 # Host volume folders for the Nomad jobs, the Nomad version of compose's named volumes.
 NOMAD_DATA = $(CURDIR)/.nomad-data
 
@@ -29,12 +32,15 @@ help:
 	@echo "  migrate-up      apply all pending database migrations"
 	@echo "  migrate-down    undo the last applied database migration"
 	@echo "  nomad-agent     start a local Nomad dev agent (blocks, run it in its own terminal)"
-	@echo "  nomad-volumes   create the pgdata, pgdata-replica and kafkadata host volumes on a real cluster (once)"
+	@echo "  nomad-volumes   create the pgdata, pgdata-replica, kafkadata and esdata host volumes on a real cluster (once)"
 	@echo "  nomad-up        deploy postgres, its replica, redis, kafka, then the todo app to Nomad"
-	@echo "  nomad-down      stop and remove every Nomad job (keeps data)"
+	@echo "  nomad-elk-up    deploy elasticsearch, kibana and filebeat to Nomad"
+	@echo "  nomad-elk-down  stop and remove the elasticsearch, kibana and filebeat jobs (keeps data)"
+	@echo "  nomad-down      stop and remove every Nomad job, ELK included (keeps data)"
 	@echo "  nomad-reset     stop every Nomad job and DELETE all postgres and kafka data"
 	@echo "  nomad-status    show the status of every Nomad job"
 	@echo "  nomad-url       print the address the todo app is listening on"
+	@echo "  nomad-kibana-url print the address Kibana is listening on"
 	@echo "  test-e2e-nomad  run e2e tests against the app running on Nomad"
 
 fmt:
@@ -107,6 +113,7 @@ nomad-volumes:
 	nomad volume create $(NOMAD_DIR)/volumes/pgdata.volume.hcl
 	nomad volume create $(NOMAD_DIR)/volumes/pgdata-replica.volume.hcl
 	nomad volume create $(NOMAD_DIR)/volumes/kafkadata.volume.hcl
+	nomad volume create $(NOMAD_DIR)/volumes/esdata.volume.hcl
 
 # job run waits until each deployment is healthy, so the todo job starts
 # only after the services it looks up are registered
@@ -117,7 +124,15 @@ nomad-up:
 	nomad job run deployments/nomad/kafka.nomad.hcl
 	nomad job run deployments/nomad/app.nomad.hcl
 
-nomad-down:
+# Kept out of nomad-up: elasticsearch alone reserves 2 GB of memory. Filebeat
+# is a system job, so it runs on every node and ships every allocation's logs.
+nomad-elk-up:
+	@for job in $(NOMAD_ELK); do nomad job run $(NOMAD_DIR)/$$job.nomad.hcl || exit 1; done
+
+nomad-elk-down:
+	-@for job in $(NOMAD_ELK); do nomad job stop -purge $$job; done
+
+nomad-down: nomad-elk-down
 	-nomad job stop -purge app
 	-@for job in $(NOMAD_INFRA); do nomad job stop -purge $$job; done
 
@@ -134,6 +149,9 @@ NOMAD_URL = nomad service info -t '{{ range . }}http://{{ .Address }}:{{ .Port }
 
 nomad-url:
 	@$(NOMAD_URL)
+
+nomad-kibana-url:
+	@nomad service info -t '{{ range . }}http://{{ .Address }}:{{ .Port }}{{ "\n" }}{{ end }}' kibana
 
 # The app's port on Nomad is dynamic, so look it up rather than hardcoding it.
 test-e2e-nomad:
