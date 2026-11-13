@@ -52,7 +52,7 @@ EOF
     task "app" {
       driver = "docker"
       config {
-        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.2.0"
+        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.5.0"
         ports = ["http"]
         # The app reads brokers from a flag, not an env var, so pass the
         # KAFKA_BROKERS value that the template below sets.
@@ -81,7 +81,7 @@ EOF
     task "worker" {
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.2.0"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.5.0"
         entrypoint = ["./worker"]
         args       = ["-brokers", "${KAFKA_BROKERS}"]
       }
