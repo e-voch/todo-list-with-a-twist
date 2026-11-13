@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"todo/internal/cache"
+	"todo/internal/logging"
 	"todo/internal/queue"
 	"todo/internal/server"
 	"todo/internal/storage"
@@ -19,6 +20,8 @@ func main() {
 	brokers := flag.String("brokers", "localhost:9092", "kafka bootstrap servers")
 	topic := flag.String("topic", "tasks", "kafka topic for task events")
 	flag.Parse()
+
+	logging.Setup("todo")
 
 	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -47,7 +50,7 @@ func main() {
 	}
 	defer producer.Close()
 
-	slog.Info("Server is running on http://localhost:8080")
+	slog.Info("server started", "addr", ":8080")
 	if err := http.ListenAndServe(":8080", server.NewHandler(cached, producer)); err != nil {
 		slog.Error("server failed", "err", err)
 		os.Exit(1)

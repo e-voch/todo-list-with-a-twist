@@ -103,12 +103,12 @@ func (s *Store) List(query string, limit, offset int) ([]task.Task, error) {
 	case err == nil:
 		var tasks []task.Task
 		if err := json.Unmarshal(data, &tasks); err == nil {
-			slog.Info("cache hit", "key", key)
+			slog.Debug("cache hit", "key", key)
 			return tasks, nil
 		}
 		slog.Warn("cache entry unreadable", "key", key, "err", err)
 	case errors.Is(err, redis.Nil):
-		slog.Info("cache miss", "key", key)
+		slog.Debug("cache miss", "key", key)
 	default:
 		slog.Error("cache get failed", "key", key, "err", err)
 	}
@@ -148,12 +148,12 @@ func (s *Store) Count(query string) (int, error) {
 	case err == nil:
 		var n int
 		if err := json.Unmarshal(data, &n); err == nil {
-			slog.Info("cache hit", "key", key)
+			slog.Debug("cache hit", "key", key)
 			return n, nil
 		}
 		slog.Warn("cache entry unreadable", "key", key, "err", err)
 	case errors.Is(err, redis.Nil):
-		slog.Info("cache miss", "key", key)
+		slog.Debug("cache miss", "key", key)
 	default:
 		slog.Error("cache get failed", "key", key, "err", err)
 	}

@@ -12,10 +12,14 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"todo/db/migrations"
+	"todo/internal/logging"
 )
 
 func main() {
 	flag.Parse()
+
+	logging.Setup("migrate")
+
 	command := flag.Arg(0)
 	if command == "" {
 		command = "up"
