@@ -35,6 +35,10 @@ job "fluent-bit" {
     Name   nomad_path
     Format regex
     Regex  ^/nomad-alloc/(?<alloc_id>[^/]+)/alloc/logs/(?<task>[^.]+)[.](?<stream>stdout|stderr)[.][0-9]+$
+
+[PARSER]
+    Name   json
+    Format json
 EOF
       }
 
@@ -59,6 +63,16 @@ EOF
     Parser       nomad_path
     Reserve_Data On
     Preserve_Key On
+
+# Split JSON log lines (the Go services use slog's JSON handler) into separate
+# fields. Lines that aren't JSON, like a panic trace or another job's logs,
+# fail to parse and are kept as they are, with the raw text in "log".
+[FILTER]
+    Name         parser
+    Match        nomad
+    Key_Name     log
+    Parser       json
+    Reserve_Data On
 
 [FILTER]
     Name   record_modifier

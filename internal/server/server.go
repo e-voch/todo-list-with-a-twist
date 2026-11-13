@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"todo/internal/storage"
 	"todo/internal/task"
 	"todo/web"
 
@@ -85,7 +87,7 @@ func NewHandler(store task.Store, pub Publisher) http.Handler {
 	mux.HandleFunc("/edit/", editHandler(store, pub))
 	mux.HandleFunc("/{$}", homeHandler(store, pub))
 	mux.HandleFunc("/", notFoundHandler)
-	return limitURLLength(mux)
+	return logRequests(slog.Default(), limitURLLength(mux))
 }
 
 // limitURLLength rejects requests whose URL is longer than maxURLLength.
@@ -102,7 +104,6 @@ func limitURLLength(next http.Handler) http.Handler {
 
 func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("home endpoint reached", "method", r.Method, "path", r.URL.Path)
 		title := r.FormValue("ftitle")
 		description := r.FormValue("fdescription")
 
@@ -118,7 +119,7 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 				http.Error(w, "could not create task", http.StatusInternalServerError)
 				return
 			}
-			slog.Info("task created", "id", id, "title", title, "description", description)
+			slog.Info("task created", "task_id", id)
 			publish(pub, task.EventMessage{
 				Type: task.EventCreated,
 				Task: task.Task{ID: id, Title: title, Description: description},
@@ -183,33 +184,31 @@ func homeURL(query string, page int) string {
 }
 
 func notFoundHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("404 not found", "method", r.Method, "path", r.URL.Path)
 	http.Error(w, "404 - Page Not Found", http.StatusNotFound)
 }
 
 func faviconHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Info("favicon endpoint reached", "method", r.Method, "path", r.URL.Path)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func deleteHandler(store task.Store, pub Publisher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("delete endpoint reached", "method", r.Method, "path", r.URL.Path)
 		idStr := r.FormValue("id")
 
 		id, err := uuid.Parse(idStr)
 		if err != nil {
-			slog.Error("invalid id", "id", idStr, "err", err)
+			// A malformed link from the client, not a failure on our side.
+			slog.Warn("invalid task id", "task_id", idStr, "err", err)
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
 
 		if err := store.Delete(id); err != nil {
-			slog.Error("delete failed", "id", id, "err", err)
+			slog.Error("delete failed", "task_id", id, "err", err)
 			http.Error(w, "could not delete task", http.StatusInternalServerError)
 			return
 		}
-		slog.Info("task deleted", "id", id)
+		slog.Info("task deleted", "task_id", id)
 		publish(pub, task.EventMessage{Type: task.EventDeleted, Task: task.Task{ID: id}})
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
@@ -217,12 +216,12 @@ func deleteHandler(store task.Store, pub Publisher) http.HandlerFunc {
 
 func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("edit endpoint reached", "method", r.Method, "path", r.URL.Path)
 		idStr := r.FormValue("id")
 
 		id, err := uuid.Parse(idStr)
 		if err != nil {
-			slog.Error("invalid id", "id", idStr, "err", err)
+			// A malformed link from the client, not a failure on our side.
+			slog.Warn("invalid task id", "task_id", idStr, "err", err)
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
@@ -232,11 +231,11 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 
 		if title != "" {
 			if err := store.Update(id, title, description); err != nil {
-				slog.Error("update failed", "id", id, "err", err)
+				slog.Error("update failed", "task_id", id, "err", err)
 				http.Error(w, "could not update task", http.StatusInternalServerError)
 				return
 			}
-			slog.Info("task updated", "id", id, "title", title, "description", description)
+			slog.Info("task updated", "task_id", id)
 			publish(pub, task.EventMessage{
 				Type: task.EventEdited,
 				Task: task.Task{ID: id, Title: title, Description: description},
@@ -246,9 +245,15 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		}
 
 		t, err := store.Get(id)
-		if err != nil {
-			slog.Error("get failed", "id", id, "err", err)
+		switch {
+		case errors.Is(err, storage.ErrNotFound):
+			// A stale link or a typed URL: the client's mistake, not ours.
+			slog.Warn("task not found", "task_id", id)
 			http.Error(w, "task not found", http.StatusNotFound)
+			return
+		case err != nil:
+			slog.Error("get failed", "task_id", id, "err", err)
+			http.Error(w, "could not load task", http.StatusInternalServerError)
 			return
 		}
 
@@ -257,7 +262,6 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 			Task task.Task
 		}{id, t}
 
-		slog.Info("edit form displayed", "id", id)
 		if err := editTmpl.Execute(w, data); err != nil {
 			slog.Error("render failed", "err", err)
 		}
@@ -269,6 +273,6 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 // event is lost. An outbox table would close that gap.
 func publish(pub Publisher, e task.EventMessage) {
 	if err := pub.Publish(e); err != nil {
-		slog.Error("publish failed", "type", e.Type, "id", e.Task.ID, "err", err)
+		slog.Error("publish failed", "type", e.Type, "task_id", e.Task.ID, "err", err)
 	}
 }

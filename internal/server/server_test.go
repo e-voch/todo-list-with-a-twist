@@ -367,6 +367,8 @@ func Test_handlers_StoreError(t *testing.T) {
 		{"home list", homeHandler(failingStore{}, pub), "/"},
 		{"delete", deleteHandler(failingStore{}, pub), "/delete/?id=" + id.String()},
 		{"edit save", editHandler(failingStore{}, pub), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
+		// A failing store is not a missing task: it must be a 500, not a 404.
+		{"edit form", editHandler(failingStore{}, pub), "/edit/?id=" + id.String()},
 	}
 
 	for _, tt := range tests {

@@ -30,7 +30,7 @@ job "app" {
 
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.2.0"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.5.0"
         entrypoint = ["./migrate"]
         args       = ["up"]
       }

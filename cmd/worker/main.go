@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"todo/internal/cache"
+	"todo/internal/logging"
 	"todo/internal/queue"
 	"todo/internal/storage"
 	"todo/internal/task"
@@ -45,6 +46,8 @@ func main() {
 	topic := flag.String("topic", "tasks", "kafka topic for task events")
 	group := flag.String("group", "todo-worker", "kafka consumer group id")
 	flag.Parse()
+
+	logging.Setup("worker")
 
 	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -96,7 +99,7 @@ func main() {
 			if err == nil {
 				break
 			}
-			slog.Error("handle failed, retrying", "type", msg.Event.Type, "id", msg.Event.Task.ID, "err", err)
+			slog.Error("handle failed, retrying", "type", msg.Event.Type, "task_id", msg.Event.Task.ID, "err", err)
 			select {
 			case <-ctx.Done():
 				slog.Info("worker stopped before event was handled; it will be redelivered")
@@ -106,7 +109,7 @@ func main() {
 		}
 
 		if err := consumer.Commit(msg); err != nil {
-			slog.Error("commit failed", "id", msg.Event.Task.ID, "err", err)
+			slog.Error("commit failed", "task_id", msg.Event.Task.ID, "err", err)
 		}
 	}
 	slog.Info("worker stopped")
@@ -117,17 +120,17 @@ func handle(store StepsWriter, e task.EventMessage) error {
 	case task.EventCreated, task.EventEdited:
 		err := store.SetRecommendedSteps(e.Task.ID, loremIpsum)
 		if errors.Is(err, storage.ErrNotFound) {
-			slog.Info("task no longer exists, skipping", "type", e.Type, "id", e.Task.ID)
+			slog.Info("task no longer exists, skipping", "type", e.Type, "task_id", e.Task.ID)
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		slog.Info("recommended steps set", "type", e.Type, "id", e.Task.ID)
+		slog.Info("recommended steps set", "type", e.Type, "task_id", e.Task.ID)
 	case task.EventDeleted:
-		slog.Info("task deleted, nothing to do", "id", e.Task.ID)
+		slog.Info("task deleted, nothing to do", "task_id", e.Task.ID)
 	default:
-		slog.Warn("unknown event type, skipping", "type", e.Type, "id", e.Task.ID)
+		slog.Warn("unknown event type, skipping", "type", e.Type, "task_id", e.Task.ID)
 	}
 	return nil
 }
