@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"todo/internal/cache"
-	"todo/internal/logging"
 	"todo/internal/queue"
 	"todo/internal/server"
 	"todo/internal/storage"
@@ -20,17 +19,15 @@ func main() {
 	brokers := flag.String("brokers", "localhost:9092", "kafka bootstrap servers")
 	topic := flag.String("topic", "tasks", "kafka topic for task events")
 	flag.Parse()
-
-	logging.Setup("todo")
-
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "todo")
 	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
 	if err != nil {
-		slog.Error("failed to connect to postgres", "err", err)
+		logger.Error("failed to connect to postgres", "err", err)
 		os.Exit(1)
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
-			slog.Error("close store", "err", err)
+			logger.Error("close store", "err", err)
 		}
 	}()
 
@@ -38,21 +35,21 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("REDIS_ADDR")})
 	defer func() {
 		if err := rdb.Close(); err != nil {
-			slog.Error("close redis", "err", err)
+			logger.Error("close redis", "err", err)
 		}
 	}()
-	cached := cache.New(store, rdb, time.Minute)
+	cached := cache.New(store, rdb, time.Minute, logger)
 
 	producer, err := queue.NewProducer(*brokers, *topic)
 	if err != nil {
-		slog.Error("failed to create producer", "err", err)
+		logger.Error("failed to create producer", "err", err)
 		os.Exit(1)
 	}
 	defer producer.Close()
 
-	slog.Info("server started", "addr", ":8080")
-	if err := http.ListenAndServe(":8080", server.NewHandler(cached, producer)); err != nil {
-		slog.Error("server failed", "err", err)
+	logger.Info("server started", "addr", ":8080")
+	if err := http.ListenAndServe(":8080", server.NewHandler(cached, producer, logger)); err != nil {
+		logger.Error("server failed", "err", err)
 		os.Exit(1)
 	}
 }

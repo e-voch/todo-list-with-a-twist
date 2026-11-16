@@ -74,7 +74,7 @@ func pageLinks(query string, current, last, window int) []pageLink {
 
 // NewHandler returns the application's HTTP routes. Reads and writes go to
 // store; after a successful write, an event is published through pub.
-func NewHandler(store task.Store, pub Publisher) http.Handler {
+func NewHandler(store task.Store, pub Publisher, logger *slog.Logger) http.Handler {
 	static, err := fs.Sub(web.FS, "static")
 	if err != nil {
 		panic(err) // the embedded directory is fixed at build time
@@ -83,26 +83,15 @@ func NewHandler(store task.Store, pub Publisher) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 	mux.HandleFunc("/favicon.ico", faviconHandler)
-	mux.HandleFunc("/delete/", deleteHandler(store, pub))
-	mux.HandleFunc("/edit/", editHandler(store, pub))
-	mux.HandleFunc("/{$}", homeHandler(store, pub))
+	mux.HandleFunc("/delete/", deleteHandler(store, pub, logger))
+	mux.HandleFunc("/edit/", editHandler(store, pub, logger))
+	mux.HandleFunc("/{$}", homeHandler(store, pub, logger))
 	mux.HandleFunc("/", notFoundHandler)
-	return logRequests(slog.Default(), limitURLLength(mux))
+	// logRequests is outermost, so requests limitURLLength rejects are logged too.
+	return logRequests(limitURLLength(mux, logger), logger)
 }
 
-// limitURLLength rejects requests whose URL is longer than maxURLLength.
-func limitURLLength(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(r.RequestURI) > maxURLLength {
-			slog.Warn("url too long", "length", len(r.RequestURI))
-			http.Error(w, "URL too long", http.StatusRequestURITooLong)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
+func homeHandler(store task.Store, pub Publisher, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		title := r.FormValue("ftitle")
 		description := r.FormValue("fdescription")
@@ -110,17 +99,17 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		if title != "" {
 			id, err := uuid.NewV7()
 			if err != nil {
-				slog.Error("generate id failed", "err", err)
+				logger.Error("generate id failed", "err", err)
 				http.Error(w, "could not create task", http.StatusInternalServerError)
 				return
 			}
 			if err := store.Create(id, title, description); err != nil {
-				slog.Error("create failed", "err", err)
+				logger.Error("create failed", "err", err)
 				http.Error(w, "could not create task", http.StatusInternalServerError)
 				return
 			}
-			slog.Info("task created", "task_id", id)
-			publish(pub, task.EventMessage{
+			logger.Info("task created", "task_id", id)
+			publish(pub, logger, task.EventMessage{
 				Type: task.EventCreated,
 				Task: task.Task{ID: id, Title: title, Description: description},
 			})
@@ -136,7 +125,7 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 
 		total, err := store.Count(query)
 		if err != nil {
-			slog.Error("count failed", "err", err)
+			logger.Error("count failed", "err", err)
 			http.Error(w, "could not load tasks", http.StatusInternalServerError)
 			return
 		}
@@ -152,7 +141,7 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 
 		taskList, err := store.List(query, pageSize, offset)
 		if err != nil {
-			slog.Error("list failed", "err", err)
+			logger.Error("list failed", "err", err)
 			http.Error(w, "could not load tasks", http.StatusInternalServerError)
 			return
 		}
@@ -169,7 +158,7 @@ func homeHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		}
 
 		if err := homeTmpl.Execute(w, data); err != nil {
-			slog.Error("render failed", "err", err)
+			logger.Error("render failed", "err", err)
 		}
 	}
 }
@@ -191,37 +180,37 @@ func faviconHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func deleteHandler(store task.Store, pub Publisher) http.HandlerFunc {
+func deleteHandler(store task.Store, pub Publisher, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.FormValue("id")
 
 		id, err := uuid.Parse(idStr)
 		if err != nil {
 			// A malformed link from the client, not a failure on our side.
-			slog.Warn("invalid task id", "task_id", idStr, "err", err)
+			logger.Warn("invalid task id", "task_id", idStr, "err", err)
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
 
 		if err := store.Delete(id); err != nil {
-			slog.Error("delete failed", "task_id", id, "err", err)
+			logger.Error("delete failed", "task_id", id, "err", err)
 			http.Error(w, "could not delete task", http.StatusInternalServerError)
 			return
 		}
-		slog.Info("task deleted", "task_id", id)
-		publish(pub, task.EventMessage{Type: task.EventDeleted, Task: task.Task{ID: id}})
+		logger.Info("task deleted", "task_id", id)
+		publish(pub, logger, task.EventMessage{Type: task.EventDeleted, Task: task.Task{ID: id}})
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
 }
 
-func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
+func editHandler(store task.Store, pub Publisher, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.FormValue("id")
 
 		id, err := uuid.Parse(idStr)
 		if err != nil {
 			// A malformed link from the client, not a failure on our side.
-			slog.Warn("invalid task id", "task_id", idStr, "err", err)
+			logger.Warn("invalid task id", "task_id", idStr, "err", err)
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
@@ -231,12 +220,12 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 
 		if title != "" {
 			if err := store.Update(id, title, description); err != nil {
-				slog.Error("update failed", "task_id", id, "err", err)
+				logger.Error("update failed", "task_id", id, "err", err)
 				http.Error(w, "could not update task", http.StatusInternalServerError)
 				return
 			}
-			slog.Info("task updated", "task_id", id)
-			publish(pub, task.EventMessage{
+			logger.Info("task updated", "task_id", id)
+			publish(pub, logger, task.EventMessage{
 				Type: task.EventEdited,
 				Task: task.Task{ID: id, Title: title, Description: description},
 			})
@@ -248,11 +237,11 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		switch {
 		case errors.Is(err, storage.ErrNotFound):
 			// A stale link or a typed URL: the client's mistake, not ours.
-			slog.Warn("task not found", "task_id", id)
+			logger.Warn("task not found", "task_id", id)
 			http.Error(w, "task not found", http.StatusNotFound)
 			return
 		case err != nil:
-			slog.Error("get failed", "task_id", id, "err", err)
+			logger.Error("get failed", "task_id", id, "err", err)
 			http.Error(w, "could not load task", http.StatusInternalServerError)
 			return
 		}
@@ -263,7 +252,7 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 		}{id, t}
 
 		if err := editTmpl.Execute(w, data); err != nil {
-			slog.Error("render failed", "err", err)
+			logger.Error("render failed", "err", err)
 		}
 	}
 }
@@ -271,8 +260,8 @@ func editHandler(store task.Store, pub Publisher) http.HandlerFunc {
 // publish sends e after the store write has already succeeded. A failure is
 // only logged: the task is saved, so the request still succeeds, but the
 // event is lost. An outbox table would close that gap.
-func publish(pub Publisher, e task.EventMessage) {
+func publish(pub Publisher, logger *slog.Logger, e task.EventMessage) {
 	if err := pub.Publish(e); err != nil {
-		slog.Error("publish failed", "type", e.Type, "task_id", e.Task.ID, "err", err)
+		logger.Error("publish failed", "type", e.Type, "task_id", e.Task.ID, "err", err)
 	}
 }

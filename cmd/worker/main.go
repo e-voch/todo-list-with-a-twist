@@ -14,7 +14,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"todo/internal/cache"
-	"todo/internal/logging"
 	"todo/internal/queue"
 	"todo/internal/storage"
 	"todo/internal/task"
@@ -30,14 +29,15 @@ type StepsWriter interface {
 // so the home page shows new steps straight away.
 type invalidatingWriter struct {
 	StepsWriter
-	rdb *redis.Client
+	rdb    *redis.Client
+	logger *slog.Logger
 }
 
 func (w invalidatingWriter) SetRecommendedSteps(id uuid.UUID, steps string) error {
 	if err := w.StepsWriter.SetRecommendedSteps(id, steps); err != nil {
 		return err
 	}
-	cache.Invalidate(w.rdb)
+	cache.Invalidate(w.rdb, w.logger)
 	return nil
 }
 
@@ -47,16 +47,16 @@ func main() {
 	group := flag.String("group", "todo-worker", "kafka consumer group id")
 	flag.Parse()
 
-	logging.Setup("worker")
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "worker")
 
 	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
 	if err != nil {
-		slog.Error("failed to connect to postgres", "err", err)
+		logger.Error("failed to connect to postgres", "err", err)
 		os.Exit(1)
 	}
 	defer func() {
 		if err := store.Close(); err != nil {
-			slog.Error("close store", "err", err)
+			logger.Error("close store", "err", err)
 		}
 	}()
 
@@ -64,30 +64,30 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("REDIS_ADDR")})
 	defer func() {
 		if err := rdb.Close(); err != nil {
-			slog.Error("close redis", "err", err)
+			logger.Error("close redis", "err", err)
 		}
 	}()
-	writer := invalidatingWriter{StepsWriter: store, rdb: rdb}
+	writer := invalidatingWriter{StepsWriter: store, rdb: rdb, logger: logger}
 
 	consumer, err := queue.NewConsumer(*brokers, *group, *topic)
 	if err != nil {
-		slog.Error("failed to create consumer", "err", err)
+		logger.Error("failed to create consumer", "err", err)
 		os.Exit(1)
 	}
 	defer func() {
 		if err := consumer.Close(); err != nil {
-			slog.Error("close consumer", "err", err)
+			logger.Error("close consumer", "err", err)
 		}
 	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	slog.Info("worker started", "topic", *topic, "group", *group)
+	logger.Info("worker started", "topic", *topic, "group", *group)
 	for ctx.Err() == nil {
 		msg, err := consumer.Read(500 * time.Millisecond)
 		if err != nil {
-			slog.Error("read failed", "err", err)
+			logger.Error("read failed", "err", err)
 			continue
 		}
 		if msg == nil {
@@ -95,42 +95,42 @@ func main() {
 		}
 
 		for {
-			err := handle(writer, msg.Event)
+			err := handle(writer, logger, msg.Event)
 			if err == nil {
 				break
 			}
-			slog.Error("handle failed, retrying", "type", msg.Event.Type, "task_id", msg.Event.Task.ID, "err", err)
+			logger.Error("handle failed, retrying", "type", msg.Event.Type, "task_id", msg.Event.Task.ID, "err", err)
 			select {
 			case <-ctx.Done():
-				slog.Info("worker stopped before event was handled; it will be redelivered")
+				logger.Info("worker stopped before event was handled; it will be redelivered")
 				return
 			case <-time.After(time.Second):
 			}
 		}
 
 		if err := consumer.Commit(msg); err != nil {
-			slog.Error("commit failed", "task_id", msg.Event.Task.ID, "err", err)
+			logger.Error("commit failed", "task_id", msg.Event.Task.ID, "err", err)
 		}
 	}
-	slog.Info("worker stopped")
+	logger.Info("worker stopped")
 }
 
-func handle(store StepsWriter, e task.EventMessage) error {
+func handle(store StepsWriter, logger *slog.Logger, e task.EventMessage) error {
 	switch e.Type {
 	case task.EventCreated, task.EventEdited:
 		err := store.SetRecommendedSteps(e.Task.ID, loremIpsum)
 		if errors.Is(err, storage.ErrNotFound) {
-			slog.Info("task no longer exists, skipping", "type", e.Type, "task_id", e.Task.ID)
+			logger.Info("task no longer exists, skipping", "type", e.Type, "task_id", e.Task.ID)
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		slog.Info("recommended steps set", "type", e.Type, "task_id", e.Task.ID)
+		logger.Info("recommended steps set", "type", e.Type, "task_id", e.Task.ID)
 	case task.EventDeleted:
-		slog.Info("task deleted, nothing to do", "task_id", e.Task.ID)
+		logger.Info("task deleted, nothing to do", "task_id", e.Task.ID)
 	default:
-		slog.Warn("unknown event type, skipping", "type", e.Type, "task_id", e.Task.ID)
+		logger.Warn("unknown event type, skipping", "type", e.Type, "task_id", e.Task.ID)
 	}
 	return nil
 }

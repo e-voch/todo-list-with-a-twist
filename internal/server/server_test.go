@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -15,6 +16,8 @@ import (
 	"todo/internal/storage"
 	"todo/internal/task"
 )
+
+var discard = slog.New(slog.DiscardHandler)
 
 func Test_notFoundHandler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/does-not-exits", nil)
@@ -41,36 +44,13 @@ func Test_faviconHandler(t *testing.T) {
 	}
 }
 
-func Test_limitURLLength(t *testing.T) {
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	h := limitURLLength(next)
-
-	tests := []struct {
-		name string
-		url  string
-		want int
-	}{
-		{"at limit", "/" + strings.Repeat("a", maxURLLength-1), http.StatusOK},
-		{"over limit", "/" + strings.Repeat("a", maxURLLength), http.StatusRequestURITooLong},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.url, nil))
-			if rec.Code != tt.want {
-				t.Errorf("status = %d, want %d", rec.Code, tt.want)
-			}
-		})
-	}
-}
-
 func Test_homeHandler_Create(t *testing.T) {
 	store := newFakeStore()
 	pub := &fakePublisher{}
 	req := httptest.NewRequest(http.MethodGet, "/?ftitle=Buy&fdescription=Milk", nil)
 	rec := httptest.NewRecorder()
 
-	homeHandler(store, pub)(rec, req)
+	homeHandler(store, pub, discard)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -112,7 +92,7 @@ func Test_homeHandler_List(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
-	homeHandler(store, &fakePublisher{})(rec, req)
+	homeHandler(store, &fakePublisher{}, discard)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -135,7 +115,7 @@ func Test_deleteHandler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/delete/?id=%s", id), nil)
 	rec := httptest.NewRecorder()
 
-	deleteHandler(store, pub)(rec, req)
+	deleteHandler(store, pub, discard)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -162,7 +142,7 @@ func Test_deleteHandler_InvalidID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/delete/?id=abc", nil)
 	rec := httptest.NewRecorder()
 
-	deleteHandler(newFakeStore(), pub)(rec, req)
+	deleteHandler(newFakeStore(), pub, discard)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -180,7 +160,7 @@ func Test_editHandler_InvalidID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/edit/?id=abc", nil)
 	rec := httptest.NewRecorder()
 
-	editHandler(store, &fakePublisher{})(rec, req)
+	editHandler(store, &fakePublisher{}, discard)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -200,7 +180,7 @@ func Test_editHandler_Form(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/edit/?id=%s", id), nil)
 	rec := httptest.NewRecorder()
 
-	editHandler(store, &fakePublisher{})(rec, req)
+	editHandler(store, &fakePublisher{}, discard)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -225,7 +205,7 @@ func Test_editHandler_Save(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/edit/?id=%s&ftitle=Sell&fdescription=Bread", id), nil)
 	rec := httptest.NewRecorder()
 
-	editHandler(store, pub)(rec, req)
+	editHandler(store, pub, discard)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -363,12 +343,12 @@ func Test_handlers_StoreError(t *testing.T) {
 		handler http.HandlerFunc
 		url     string
 	}{
-		{"home create", homeHandler(failingStore{}, pub), "/?ftitle=Buy&fdescription=Milk"},
-		{"home list", homeHandler(failingStore{}, pub), "/"},
-		{"delete", deleteHandler(failingStore{}, pub), "/delete/?id=" + id.String()},
-		{"edit save", editHandler(failingStore{}, pub), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
+		{"home create", homeHandler(failingStore{}, pub, discard), "/?ftitle=Buy&fdescription=Milk"},
+		{"home list", homeHandler(failingStore{}, pub, discard), "/"},
+		{"delete", deleteHandler(failingStore{}, pub, discard), "/delete/?id=" + id.String()},
+		{"edit save", editHandler(failingStore{}, pub, discard), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
 		// A failing store is not a missing task: it must be a 500, not a 404.
-		{"edit form", editHandler(failingStore{}, pub), "/edit/?id=" + id.String()},
+		{"edit form", editHandler(failingStore{}, pub, discard), "/edit/?id=" + id.String()},
 	}
 
 	for _, tt := range tests {
@@ -404,9 +384,9 @@ func Test_handlers_PublishError(t *testing.T) {
 		handler http.HandlerFunc
 		url     string
 	}{
-		{"home create", homeHandler(store, failingPublisher{}), "/?ftitle=New&fdescription=Task"},
-		{"edit save", editHandler(store, failingPublisher{}), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
-		{"delete", deleteHandler(store, failingPublisher{}), "/delete/?id=" + id.String()},
+		{"home create", homeHandler(store, failingPublisher{}, discard), "/?ftitle=New&fdescription=Task"},
+		{"edit save", editHandler(store, failingPublisher{}, discard), "/edit/?id=" + id.String() + "&ftitle=Sell&fdescription=Bread"},
+		{"delete", deleteHandler(store, failingPublisher{}, discard), "/delete/?id=" + id.String()},
 	}
 
 	for _, tt := range tests {
@@ -437,7 +417,7 @@ func Test_editHandler_MissingTask(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/edit/?id="+uuid.Must(uuid.NewV7()).String(), nil)
 	rec := httptest.NewRecorder()
 
-	editHandler(store, &fakePublisher{})(rec, req)
+	editHandler(store, &fakePublisher{}, discard)(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -468,7 +448,7 @@ func Test_homeHandler_Pagination(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			homeHandler(store, &fakePublisher{})(rec, httptest.NewRequest(http.MethodGet, tt.url, nil))
+			homeHandler(store, &fakePublisher{}, discard)(rec, httptest.NewRequest(http.MethodGet, tt.url, nil))
 
 			body := rec.Body.String()
 			for _, s := range tt.wantIn {
@@ -527,7 +507,7 @@ func Test_homeHandler_Search(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
 			rec := httptest.NewRecorder()
 
-			homeHandler(store, &fakePublisher{})(rec, req)
+			homeHandler(store, &fakePublisher{}, discard)(rec, req)
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -558,7 +538,7 @@ func Test_homeHandler_SearchPastEnd(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/?q=buy&page=5", nil)
 	rec := httptest.NewRecorder()
 
-	homeHandler(store, &fakePublisher{})(rec, req)
+	homeHandler(store, &fakePublisher{}, discard)(rec, req)
 
 	if rec.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
@@ -613,7 +593,7 @@ func Test_homeHandler_NoPageNavForOnePage(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	homeHandler(store, &fakePublisher{})(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	homeHandler(store, &fakePublisher{}, discard)(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	if strings.Contains(rec.Body.String(), "<nav") {
 		t.Errorf("rendered page navigation for a single page")

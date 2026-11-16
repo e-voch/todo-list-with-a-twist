@@ -12,13 +12,12 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"todo/db/migrations"
-	"todo/internal/logging"
 )
 
 func main() {
 	flag.Parse()
 
-	logging.Setup("migrate")
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "migrate")
 
 	command := flag.Arg(0)
 	if command == "" {
@@ -27,29 +26,29 @@ func main() {
 
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
-		slog.Error("DATABASE_URL is not set")
+		logger.Error("DATABASE_URL is not set")
 		os.Exit(1)
 	}
 
 	db, err := sql.Open("postgres", url)
 	if err != nil {
-		slog.Error("open database", "err", err)
+		logger.Error("open database", "err", err)
 		os.Exit(1)
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
-			slog.Error("close database", "err", err)
+			logger.Error("close database", "err", err)
 		}
 	}()
 
 	if err := db.Ping(); err != nil {
-		slog.Error("ping database", "err", err)
+		logger.Error("ping database", "err", err)
 		os.Exit(1)
 	}
 
 	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrations.FS, goose.WithVerbose(true))
 	if err != nil {
-		slog.Error("create migration provider", "err", err)
+		logger.Error("create migration provider", "err", err)
 		os.Exit(1)
 	}
 
@@ -58,18 +57,18 @@ func main() {
 	switch command {
 	case "up":
 		if _, err := provider.Up(ctx); err != nil {
-			slog.Error("migrate up", "err", err)
+			logger.Error("migrate up", "err", err)
 			os.Exit(1)
 		}
 	case "down":
 		if _, err := provider.Down(ctx); err != nil {
-			slog.Error("migrate down", "err", err)
+			logger.Error("migrate down", "err", err)
 			os.Exit(1)
 		}
 	case "status":
 		statuses, err := provider.Status(ctx)
 		if err != nil {
-			slog.Error("migrate status", "err", err)
+			logger.Error("migrate status", "err", err)
 			os.Exit(1)
 		}
 
@@ -78,7 +77,7 @@ func main() {
 
 		}
 	default:
-		slog.Error("unknown command", "command", command)
+		logger.Error("unknown command", "command", command)
 		os.Exit(1)
 	}
 }
