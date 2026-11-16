@@ -5,10 +5,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func Test_measureRequests(t *testing.T) {
-	h := NewHandler(newFakeStore(), &fakePublisher{}, discard)
+	h := NewHandler(newFakeStore(), &fakePublisher{}, discard, prometheus.NewRegistry())
 
 	for _, url := range []string{
 		"/",

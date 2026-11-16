@@ -12,6 +12,8 @@ import (
 	"todo/internal/server"
 	"todo/internal/storage"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -20,6 +22,15 @@ func main() {
 	topic := flag.String("topic", "tasks", "kafka topic for task events")
 	flag.Parse()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "todo")
+
+	// One registry for the whole program, handed to every package that has
+	// metrics, like the logger. /metrics serves all of it.
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(
+		collectors.NewGoCollector(),                                       // memory, goroutines, GC
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}), // CPU, open files
+	)
+
 	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
 	if err != nil {
 		logger.Error("failed to connect to postgres", "err", err)
@@ -38,7 +49,7 @@ func main() {
 			logger.Error("close redis", "err", err)
 		}
 	}()
-	cached := cache.New(store, rdb, time.Minute, logger)
+	cached := cache.New(store, rdb, time.Minute, logger, reg)
 
 	producer, err := queue.NewProducer(*brokers, *topic)
 	if err != nil {
@@ -48,7 +59,7 @@ func main() {
 	defer producer.Close()
 
 	logger.Info("server started", "addr", ":8080")
-	if err := http.ListenAndServe(":8080", server.NewHandler(cached, producer, logger)); err != nil {
+	if err := http.ListenAndServe(":8080", server.NewHandler(cached, producer, logger, reg)); err != nil {
 		logger.Error("server failed", "err", err)
 		os.Exit(1)
 	}

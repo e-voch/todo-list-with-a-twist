@@ -11,6 +11,7 @@ import (
 	"todo/internal/task"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -29,10 +30,19 @@ type Store struct {
 	rdb    *redis.Client
 	ttl    time.Duration
 	logger *slog.Logger
+	// requests counts List and Count lookups by result: hit, miss, or error
+	// (Redis failed or held an unreadable entry, so the lookup skipped the cache).
+	requests *prometheus.CounterVec
 }
 
-func New(inner task.Store, rdb *redis.Client, ttl time.Duration, logger *slog.Logger) *Store {
-	return &Store{Store: inner, rdb: rdb, ttl: ttl, logger: logger}
+// New wraps inner with a Redis cache and registers the cache's metrics with reg.
+func New(inner task.Store, rdb *redis.Client, ttl time.Duration, logger *slog.Logger, reg prometheus.Registerer) *Store {
+	requests := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "cache_requests_total",
+		Help: "Cache lookups, by operation (list, count) and result (hit, miss, error).",
+	}, []string{"op", "result"})
+	reg.MustRegister(requests)
+	return &Store{Store: inner, rdb: rdb, ttl: ttl, logger: logger, requests: requests}
 }
 
 func (s *Store) Create(id uuid.UUID, title, description string) error {
@@ -92,6 +102,7 @@ func (s *Store) List(query string, limit, offset int) ([]task.Task, error) {
 	if err != nil {
 		cancel()
 		s.logger.Error("cache generation failed", "err", err)
+		s.requests.WithLabelValues("list", "error").Inc()
 		return s.Store.List(query, limit, offset) // can't trust the cache: skip it
 	}
 	// query goes last: it is user input and may itself contain ':'.
@@ -105,13 +116,17 @@ func (s *Store) List(query string, limit, offset int) ([]task.Task, error) {
 		var tasks []task.Task
 		if err := json.Unmarshal(data, &tasks); err == nil {
 			s.logger.Debug("cache hit", "key", key)
+			s.requests.WithLabelValues("list", "hit").Inc()
 			return tasks, nil
 		}
 		s.logger.Warn("cache entry unreadable", "key", key, "err", err)
+		s.requests.WithLabelValues("list", "error").Inc()
 	case errors.Is(err, redis.Nil):
 		s.logger.Debug("cache miss", "key", key)
+		s.requests.WithLabelValues("list", "miss").Inc()
 	default:
 		s.logger.Error("cache get failed", "key", key, "err", err)
+		s.requests.WithLabelValues("list", "error").Inc()
 	}
 
 	tasks, err := s.Store.List(query, limit, offset)
@@ -138,6 +153,7 @@ func (s *Store) Count(query string) (int, error) {
 	if err != nil {
 		cancel()
 		s.logger.Error("cache generation failed", "err", err)
+		s.requests.WithLabelValues("count", "error").Inc()
 		return s.Store.Count(query) // can't trust the cache: skip it
 	}
 	key := fmt.Sprintf("todo:v1:gen%d:count:%s", gen, query)
@@ -150,13 +166,17 @@ func (s *Store) Count(query string) (int, error) {
 		var n int
 		if err := json.Unmarshal(data, &n); err == nil {
 			s.logger.Debug("cache hit", "key", key)
+			s.requests.WithLabelValues("count", "hit").Inc()
 			return n, nil
 		}
 		s.logger.Warn("cache entry unreadable", "key", key, "err", err)
+		s.requests.WithLabelValues("count", "error").Inc()
 	case errors.Is(err, redis.Nil):
 		s.logger.Debug("cache miss", "key", key)
+		s.requests.WithLabelValues("count", "miss").Inc()
 	default:
 		s.logger.Error("cache get failed", "key", key, "err", err)
+		s.requests.WithLabelValues("count", "error").Inc()
 	}
 	n, err := s.Store.Count(query) // ask Postgres
 	if err != nil {

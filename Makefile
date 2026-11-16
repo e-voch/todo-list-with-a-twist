@@ -1,6 +1,6 @@
 .PHONY: help fmt vet lint build run test test-e2e coverage cover up down reset kafka migrate-status migrate-up migrate-down \
 	nomad-agent nomad-volumes nomad-up nomad-down nomad-reset nomad-status nomad-url test-e2e-nomad \
-	nomad-logs-up nomad-logs-down nomad-dashboards-url
+	nomad-logs-up nomad-logs-down nomad-dashboards-url nomad-metrics-up nomad-metrics-down nomad-prometheus-url
 
 DATABASE_URL = postgres://todo:todo@localhost:5432/todo?sslmode=disable
 UNIT_PKGS = $$(go list ./... | grep -v /test/e2e)
@@ -36,11 +36,14 @@ help:
 	@echo "  nomad-up        deploy postgres, its replica, redis, kafka, then the todo app to Nomad"
 	@echo "  nomad-logs-up   deploy opensearch, opensearch-dashboards and fluent-bit to Nomad"
 	@echo "  nomad-logs-down stop and remove the opensearch, opensearch-dashboards and fluent-bit jobs (keeps data)"
+	@echo "  nomad-metrics-up   deploy prometheus to Nomad"
+	@echo "  nomad-metrics-down stop and remove the prometheus job"
 	@echo "  nomad-down      stop and remove every Nomad job, logging included (keeps data)"
 	@echo "  nomad-reset     stop every Nomad job and DELETE all postgres and kafka data"
 	@echo "  nomad-status    show the status of every Nomad job"
 	@echo "  nomad-url       print the address the todo app is listening on"
 	@echo "  nomad-dashboards-url print the address OpenSearch Dashboards is listening on"
+	@echo "  nomad-prometheus-url print the address Prometheus is listening on"
 	@echo "  test-e2e-nomad  run e2e tests against the app running on Nomad"
 
 fmt:
@@ -132,7 +135,7 @@ nomad-logs-up:
 nomad-logs-down:
 	-@for job in $(NOMAD_LOGS); do nomad job stop -purge $$job; done
 
-nomad-down: nomad-logs-down
+nomad-down: nomad-logs-down nomad-metrics-down
 	-nomad job stop -purge app
 	-@for job in $(NOMAD_INFRA); do nomad job stop -purge $$job; done
 
@@ -141,6 +144,13 @@ nomad-down: nomad-logs-down
 nomad-reset: nomad-down
 	docker run --rm -v "$(NOMAD_DATA):/data" --entrypoint sh postgres:18 \
 		-c 'find /data/pgdata /data/pgdata-replica /data/kafkadata -mindepth 1 -delete'
+
+# Separate from nomad-up, like the logging jobs: the app runs without it.
+nomad-metrics-up:
+	nomad job run $(NOMAD_DIR)/prometheus.nomad.hcl
+
+nomad-metrics-down:
+	-nomad job stop -purge prometheus
 
 nomad-status:
 	nomad job status
@@ -152,6 +162,9 @@ nomad-url:
 
 nomad-dashboards-url:
 	@nomad service info -t '{{ range . }}http://{{ .Address }}:{{ .Port }}{{ "\n" }}{{ end }}' opensearch-dashboards
+
+nomad-prometheus-url:
+	@nomad service info -t '{{ range . }}http://{{ .Address }}:{{ .Port }}{{ "\n" }}{{ end }}' prometheus
 
 # The app's port on Nomad is dynamic, so look it up rather than hardcoding it.
 test-e2e-nomad:

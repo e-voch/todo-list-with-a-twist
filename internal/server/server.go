@@ -16,7 +16,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -75,24 +74,20 @@ func pageLinks(query string, current, last, window int) []pageLink {
 	return links
 }
 
-func NewHandler(store task.Store, pub Publisher, logger *slog.Logger) http.Handler {
+// NewHandler returns the application's HTTP routes. Request metrics are
+// registered with reg, and /metrics serves everything registered there.
+func NewHandler(store task.Store, pub Publisher, logger *slog.Logger, reg *prometheus.Registry) http.Handler {
 	static, err := fs.Sub(web.FS, "static")
 	if err != nil {
 		panic(err) // the embedded directory is fixed at build time
 	}
 
-	// Our own registry instead of Prometheus's global one: calling NewHandler
-	// twice (as tests do) would otherwise panic on duplicate registration.
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(
-		collectors.NewGoCollector(),                                       // memory, goroutines, GC
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}), // CPU, open files
-	)
 	metrics := newHTTPMetrics(reg)
 
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
-	// Prometheus scrapes this page; it lists every metric registered with reg.
+	// Prometheus scrapes this page; it lists every metric registered with reg,
+	// including ones other packages (like the cache) registered.
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/favicon.ico", faviconHandler)
 	mux.HandleFunc("/delete/", deleteHandler(store, pub, logger))
