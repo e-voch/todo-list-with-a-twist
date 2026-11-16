@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"todo/internal/storage"
 	"todo/internal/task"
@@ -603,7 +604,11 @@ func Test_homeHandler_NoPageNavForOnePage(t *testing.T) {
 // Goes through NewHandler, so it also catches a broken route table: the mux
 // panics if two routes use the same pattern.
 func Test_metricsEndpoint(t *testing.T) {
-	h := NewHandler(newFakeStore(), &fakePublisher{}, discard)
+	// A metric registered outside the server, as main registers the cache's:
+	// /metrics must serve everything in the registry, not just its own metrics.
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(prometheus.NewCounter(prometheus.CounterOpts{Name: "registered_elsewhere_total", Help: "test"}))
+	h := NewHandler(newFakeStore(), &fakePublisher{}, discard, reg)
 	rec := httptest.NewRecorder()
 
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
@@ -611,8 +616,7 @@ func Test_metricsEndpoint(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	// A built-in Go runtime metric: present without any registration of ours.
-	if !strings.Contains(rec.Body.String(), "go_goroutines") {
-		t.Error("body has no go_goroutines metric")
+	if !strings.Contains(rec.Body.String(), "registered_elsewhere_total") {
+		t.Error("/metrics does not serve a metric registered outside the server")
 	}
 }
