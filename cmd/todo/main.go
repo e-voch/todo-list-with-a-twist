@@ -20,11 +20,12 @@ import (
 func main() {
 	brokers := flag.String("brokers", "localhost:9092", "kafka bootstrap servers")
 	topic := flag.String("topic", "tasks", "kafka topic for task events")
+	metricsAddr := flag.String("metrics-addr", ":9091", "address for /metrics; keep it off the public load balancer")
 	flag.Parse()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "todo")
 
 	// One registry for the whole program, handed to every package that has
-	// metrics, like the logger. /metrics serves all of it.
+	// metrics, like the logger. The metrics server below serves all of it.
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
 		collectors.NewGoCollector(),                                       // memory, goroutines, GC
@@ -57,6 +58,15 @@ func main() {
 		os.Exit(1)
 	}
 	defer producer.Close()
+
+	// Metrics get their own server, so the public port never serves them.
+	go func() {
+		logger.Info("metrics server starting", "addr", *metricsAddr)
+		if err := http.ListenAndServe(*metricsAddr, server.NewMetricsHandler(reg)); err != nil {
+			logger.Error("metrics server failed", "err", err)
+			os.Exit(1)
+		}
+	}()
 
 	logger.Info("server started", "addr", ":8080")
 	if err := http.ListenAndServe(":8080", server.NewHandler(cached, producer, logger, reg)); err != nil {

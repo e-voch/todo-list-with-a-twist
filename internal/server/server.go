@@ -16,7 +16,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -74,9 +73,10 @@ func pageLinks(query string, current, last, window int) []pageLink {
 	return links
 }
 
-// NewHandler returns the application's HTTP routes. Request metrics are
-// registered with reg, and /metrics serves everything registered there.
-func NewHandler(store task.Store, pub Publisher, logger *slog.Logger, reg *prometheus.Registry) http.Handler {
+// NewHandler returns the application's public HTTP routes, and registers
+// their request metrics with reg. The metrics themselves are served by
+// NewMetricsHandler, on a separate private port.
+func NewHandler(store task.Store, pub Publisher, logger *slog.Logger, reg prometheus.Registerer) http.Handler {
 	static, err := fs.Sub(web.FS, "static")
 	if err != nil {
 		panic(err) // the embedded directory is fixed at build time
@@ -86,9 +86,6 @@ func NewHandler(store task.Store, pub Publisher, logger *slog.Logger, reg *prome
 
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
-	// Prometheus scrapes this page; it lists every metric registered with reg,
-	// including ones other packages (like the cache) registered.
-	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/favicon.ico", faviconHandler)
 	mux.HandleFunc("/delete/", deleteHandler(store, pub, logger))
 	mux.HandleFunc("/edit/", editHandler(store, pub, logger))

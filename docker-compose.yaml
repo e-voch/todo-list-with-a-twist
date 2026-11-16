@@ -93,6 +93,7 @@ services:
     command: ["-brokers", "broker:29092"]
     ports:
       - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9091:9091" # /metrics
     environment:
       DATABASE_URL: postgres://todo:todo@postgres:5432/todo?sslmode=disable
       REDIS_ADDR: redis:6379

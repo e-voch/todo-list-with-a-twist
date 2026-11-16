@@ -51,9 +51,9 @@ scrape_configs:
     nomad_sd_configs:
       - server: http://{{ env "attr.unique.network.ip-address" }}:4646
     relabel_configs:
-      # Nomad lists every service; keep only the app's instances.
+      # Nomad lists every service; keep only the app instances' metrics ports.
       - source_labels: [__meta_nomad_service]
-        regex: todo-app
+        regex: todo-app-metrics
         action: keep
 EOF
       }

@@ -52,22 +52,6 @@ func Test_logRequests(t *testing.T) {
 	}
 }
 
-func Test_logRequests_SkipsMetrics(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&buf, nil))
-	served := false
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { served = true })
-
-	logRequests(next, logger).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/metrics", nil))
-
-	if !served {
-		t.Error("scrape was not passed on to the handler")
-	}
-	if buf.Len() != 0 {
-		t.Errorf("scrape was logged: %q", buf.String())
-	}
-}
-
 func Test_limitURLLength(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	h := limitURLLength(next, discard)

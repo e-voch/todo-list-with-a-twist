@@ -19,15 +19,8 @@ func (r *statusRecorder) WriteHeader(code int) {
 }
 
 // logRequests writes one log line per request, after the handler has finished.
-// Prometheus scrapes of /metrics are not logged: they arrive every few seconds
-// from every instance, and measureRequests already counts them.
 func logRequests(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/metrics" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
 		start := time.Now()
 		// A handler that never calls WriteHeader gets 200 from Go, so start there.
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
