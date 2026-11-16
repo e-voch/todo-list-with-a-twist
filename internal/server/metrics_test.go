@@ -10,7 +10,8 @@ import (
 )
 
 func Test_measureRequests(t *testing.T) {
-	h := NewHandler(newFakeStore(), &fakePublisher{}, discard, prometheus.NewRegistry())
+	reg := prometheus.NewRegistry()
+	h := NewHandler(newFakeStore(), &fakePublisher{}, discard, reg)
 
 	for _, url := range []string{
 		"/",
@@ -22,7 +23,7 @@ func Test_measureRequests(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	NewMetricsHandler(reg).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := rec.Body.String()
 
 	for _, want := range []string{

@@ -4,10 +4,16 @@ job "app" {
   group "app" {
     count = 3
     network {
-      port "http" { 
+      port "http" {
         static = 8080
-        to = 8080 
+        to = 8080
         }
+      # Private: the Hetzner load balancer only forwards 8080, so only the
+      # 10.0.0.x network (where Prometheus runs) can reach this port.
+      port "metrics" {
+        static = 9091
+        to     = 9091
+      }
     }
 
     service {
@@ -16,6 +22,19 @@ job "app" {
       provider = "nomad"
       check {
         type     = "tcp"
+        interval = "10s"
+        timeout  = "2s"
+      }
+    }
+
+    # A separate service, so Prometheus finds the metrics port, not the app's.
+    service {
+      name     = "todo-app-metrics"
+      port     = "metrics"
+      provider = "nomad"
+      check {
+        type     = "http"
+        path     = "/metrics"
         interval = "10s"
         timeout  = "2s"
       }
@@ -30,7 +49,7 @@ job "app" {
 
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.6.1"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.6.2"
         entrypoint = ["./migrate"]
         args       = ["up"]
       }
@@ -52,8 +71,8 @@ EOF
     task "app" {
       driver = "docker"
       config {
-        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.6.1"
-        ports = ["http"]
+        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.6.2"
+        ports = ["http", "metrics"]
         # The app reads brokers from a flag, not an env var, so pass the
         # KAFKA_BROKERS value that the template below sets.
         args = ["-brokers", "${KAFKA_BROKERS}"]
@@ -81,7 +100,7 @@ EOF
     task "worker" {
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.6.1"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.6.2"
         entrypoint = ["./worker"]
         args       = ["-brokers", "${KAFKA_BROKERS}"]
       }
