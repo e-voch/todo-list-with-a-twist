@@ -16,7 +16,7 @@ func Test_logRequests(t *testing.T) {
 		handler http.HandlerFunc
 		want    int
 	}{
-		{"implicit 200", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }, http.StatusOK},
+		{"implicit 200", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) }, http.StatusOK},
 		{"explicit status", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }, http.StatusNotFound},
 	}
 	for _, tt := range tests {
