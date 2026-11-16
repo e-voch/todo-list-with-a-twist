@@ -599,3 +599,20 @@ func Test_homeHandler_NoPageNavForOnePage(t *testing.T) {
 		t.Errorf("rendered page navigation for a single page")
 	}
 }
+
+// Goes through NewHandler, so it also catches a broken route table: the mux
+// panics if two routes use the same pattern.
+func Test_metricsEndpoint(t *testing.T) {
+	h := NewHandler(newFakeStore(), &fakePublisher{}, discard)
+	rec := httptest.NewRecorder()
+
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	// A built-in Go runtime metric: present without any registration of ours.
+	if !strings.Contains(rec.Body.String(), "go_goroutines") {
+		t.Error("body has no go_goroutines metric")
+	}
+}
