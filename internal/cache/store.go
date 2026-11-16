@@ -26,12 +26,13 @@ const genKey = "todo:gen"
 // to the wrapped store.
 type Store struct {
 	task.Store
-	rdb *redis.Client
-	ttl time.Duration
+	rdb    *redis.Client
+	ttl    time.Duration
+	logger *slog.Logger
 }
 
-func New(inner task.Store, rdb *redis.Client, ttl time.Duration) *Store {
-	return &Store{Store: inner, rdb: rdb, ttl: ttl}
+func New(inner task.Store, rdb *redis.Client, ttl time.Duration, logger *slog.Logger) *Store {
+	return &Store{Store: inner, rdb: rdb, ttl: ttl, logger: logger}
 }
 
 func (s *Store) Create(id uuid.UUID, title, description string) error {
@@ -68,18 +69,18 @@ func (s *Store) generation(ctx context.Context) (int64, error) {
 }
 
 func (s *Store) invalidate() {
-	Invalidate(s.rdb)
+	Invalidate(s.rdb, s.logger)
 }
 
 // Invalidate makes every cached entry stale. Code that writes tasks without
 // going through Store, such as the worker, calls it after each write. If
 // Redis is down this only logs: the write already succeeded, and the TTL
 // clears stale entries soon anyway.
-func Invalidate(rdb *redis.Client) {
+func Invalidate(rdb *redis.Client, logger *slog.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := rdb.Incr(ctx, genKey).Err(); err != nil {
-		slog.Error("cache invalidate failed", "err", err)
+		logger.Error("cache invalidate failed", "err", err)
 	}
 }
 
@@ -90,7 +91,7 @@ func (s *Store) List(query string, limit, offset int) ([]task.Task, error) {
 	gen, err := s.generation(ctx)
 	if err != nil {
 		cancel()
-		slog.Error("cache generation failed", "err", err)
+		s.logger.Error("cache generation failed", "err", err)
 		return s.Store.List(query, limit, offset) // can't trust the cache: skip it
 	}
 	// query goes last: it is user input and may itself contain ':'.
@@ -103,14 +104,14 @@ func (s *Store) List(query string, limit, offset int) ([]task.Task, error) {
 	case err == nil:
 		var tasks []task.Task
 		if err := json.Unmarshal(data, &tasks); err == nil {
-			slog.Debug("cache hit", "key", key)
+			s.logger.Debug("cache hit", "key", key)
 			return tasks, nil
 		}
-		slog.Warn("cache entry unreadable", "key", key, "err", err)
+		s.logger.Warn("cache entry unreadable", "key", key, "err", err)
 	case errors.Is(err, redis.Nil):
-		slog.Debug("cache miss", "key", key)
+		s.logger.Debug("cache miss", "key", key)
 	default:
-		slog.Error("cache get failed", "key", key, "err", err)
+		s.logger.Error("cache get failed", "key", key, "err", err)
 	}
 
 	tasks, err := s.Store.List(query, limit, offset)
@@ -120,13 +121,13 @@ func (s *Store) List(query string, limit, offset int) ([]task.Task, error) {
 
 	data, err = json.Marshal(tasks)
 	if err != nil {
-		slog.Error("cache encode failed", "key", key, "err", err)
+		s.logger.Error("cache encode failed", "key", key, "err", err)
 		return tasks, nil
 	}
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := s.rdb.Set(ctx, key, data, s.ttl).Err(); err != nil {
-		slog.Error("cache set failed", "key", key, "err", err)
+		s.logger.Error("cache set failed", "key", key, "err", err)
 	}
 	return tasks, nil
 }
@@ -136,7 +137,7 @@ func (s *Store) Count(query string) (int, error) {
 	gen, err := s.generation(ctx)
 	if err != nil {
 		cancel()
-		slog.Error("cache generation failed", "err", err)
+		s.logger.Error("cache generation failed", "err", err)
 		return s.Store.Count(query) // can't trust the cache: skip it
 	}
 	key := fmt.Sprintf("todo:v1:gen%d:count:%s", gen, query)
@@ -148,14 +149,14 @@ func (s *Store) Count(query string) (int, error) {
 	case err == nil:
 		var n int
 		if err := json.Unmarshal(data, &n); err == nil {
-			slog.Debug("cache hit", "key", key)
+			s.logger.Debug("cache hit", "key", key)
 			return n, nil
 		}
-		slog.Warn("cache entry unreadable", "key", key, "err", err)
+		s.logger.Warn("cache entry unreadable", "key", key, "err", err)
 	case errors.Is(err, redis.Nil):
-		slog.Debug("cache miss", "key", key)
+		s.logger.Debug("cache miss", "key", key)
 	default:
-		slog.Error("cache get failed", "key", key, "err", err)
+		s.logger.Error("cache get failed", "key", key, "err", err)
 	}
 	n, err := s.Store.Count(query) // ask Postgres
 	if err != nil {
@@ -164,13 +165,13 @@ func (s *Store) Count(query string) (int, error) {
 
 	data, err = json.Marshal(n) // int to JSON bytes
 	if err != nil {
-		slog.Error("cache encode failed", "key", key, "err", err)
+		s.logger.Error("cache encode failed", "key", key, "err", err)
 		return n, nil
 	}
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := s.rdb.Set(ctx, key, data, s.ttl).Err(); err != nil {
-		slog.Error("cache set failed", "key", key, "err", err)
+		s.logger.Error("cache set failed", "key", key, "err", err)
 	}
 	return n, nil
 }

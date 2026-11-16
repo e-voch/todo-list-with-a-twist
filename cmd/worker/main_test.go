@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,6 +11,8 @@ import (
 	"todo/internal/storage"
 	"todo/internal/task"
 )
+
+var discard = slog.New(slog.DiscardHandler)
 
 // fakeStepsWriter records every SetRecommendedSteps call and returns err.
 type fakeStepsWriter struct {
@@ -36,7 +39,7 @@ func Test_handle_SetsSteps(t *testing.T) {
 			store := newFakeStepsWriter(nil)
 			e := event(typ)
 
-			if err := handle(store, e); err != nil {
+			if err := handle(store, discard, e); err != nil {
 				t.Fatalf("handle: %v", err)
 			}
 			if got, ok := store.calls[e.Task.ID]; !ok || got == "" {
@@ -50,7 +53,7 @@ func Test_handle_TaskGone(t *testing.T) {
 	// The task was deleted before its event was handled: skip, don't retry forever.
 	store := newFakeStepsWriter(fmt.Errorf("task: %w", storage.ErrNotFound))
 
-	if err := handle(store, event(task.EventCreated)); err != nil {
+	if err := handle(store, discard, event(task.EventCreated)); err != nil {
 		t.Errorf("handle = %v, want nil", err)
 	}
 }
@@ -59,7 +62,7 @@ func Test_handle_StoreError(t *testing.T) {
 	storeErr := errors.New("connection refused")
 	store := newFakeStepsWriter(storeErr)
 
-	err := handle(store, event(task.EventEdited))
+	err := handle(store, discard, event(task.EventEdited))
 	if !errors.Is(err, storeErr) {
 		t.Errorf("handle = %v, want %v", err, storeErr)
 	}
@@ -70,7 +73,7 @@ func Test_handle_NoWrite(t *testing.T) {
 		t.Run(string(typ), func(t *testing.T) {
 			store := newFakeStepsWriter(errors.New("should not be called"))
 
-			if err := handle(store, event(typ)); err != nil {
+			if err := handle(store, discard, event(typ)); err != nil {
 				t.Errorf("handle = %v, want nil", err)
 			}
 			if len(store.calls) != 0 {
