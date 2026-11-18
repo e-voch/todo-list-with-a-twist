@@ -15,6 +15,7 @@ job "prometheus" {
       name     = "prometheus"
       port     = "http"
       provider = "nomad"
+      tags     = ["metrics"] # Prometheus scrapes its own /metrics too
       check {
         type     = "http"
         path     = "/-/healthy"
@@ -29,8 +30,6 @@ job "prometheus" {
       config {
         image = "prom/prometheus:v3.5.0"
         ports = ["http"]
-        # Replaces the image's default arguments, so the storage path has to be
-        # repeated. There is no volume yet: history is lost when the task restarts.
         args = [
           "--config.file=/local/prometheus.yml",
           "--storage.tsdb.path=/prometheus",
@@ -38,8 +37,6 @@ job "prometheus" {
         ]
       }
 
-      # Prometheus asks the Nomad agent on its own node for the todo-app
-      # instances, so a restarted or moved instance is picked up by itself.
       template {
         destination = "local/prometheus.yml"
         data        = <<EOF
@@ -47,14 +44,23 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: todo
+  - job_name: nomad-services
     nomad_sd_configs:
       - server: http://{{ env "attr.unique.network.ip-address" }}:4646
     relabel_configs:
-      # Nomad lists every service; keep only the app instances' metrics ports.
+      # Nomad lists every service; keep only the ones tagged "metrics".
+      # Prometheus joins the tags as ",tag1,tag2,", hence the commas.
+      - source_labels: [__meta_nomad_tags]
+        regex: .*,metrics,.*
+        action: keep
+      # Name each target's job after its service: job="traefik", and so on.
+      - source_labels: [__meta_nomad_service]
+        target_label: job
+      # Except the app, which keeps job="todo" so the dashboard queries still match.
       - source_labels: [__meta_nomad_service]
         regex: todo-app-metrics
-        action: keep
+        target_label: job
+        replacement: todo
 EOF
       }
 

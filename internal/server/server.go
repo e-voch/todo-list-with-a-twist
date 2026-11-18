@@ -75,7 +75,7 @@ func pageLinks(query string, current, last, window int) []pageLink {
 
 // NewHandler returns the application's public HTTP routes, and registers
 // their request metrics with reg. The metrics themselves are served by
-// NewMetricsHandler, on a separate private port.
+// metrics.NewHandler, on a separate private port.
 func NewHandler(store task.Store, pub Publisher, logger *slog.Logger, reg prometheus.Registerer) http.Handler {
 	static, err := fs.Sub(web.FS, "static")
 	if err != nil {

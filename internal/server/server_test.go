@@ -601,23 +601,6 @@ func Test_homeHandler_NoPageNavForOnePage(t *testing.T) {
 	}
 }
 
-func Test_NewMetricsHandler(t *testing.T) {
-	// A metric registered outside the server, as main registers the cache's:
-	// /metrics must serve everything in the registry, not just its own metrics.
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(prometheus.NewCounter(prometheus.CounterOpts{Name: "registered_elsewhere_total", Help: "test"}))
-	rec := httptest.NewRecorder()
-
-	NewMetricsHandler(reg).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if !strings.Contains(rec.Body.String(), "registered_elsewhere_total") {
-		t.Error("/metrics does not serve a metric registered outside the server")
-	}
-}
-
 // The public handler must not expose metrics: the load balancer forwards it to
 // the internet. Going through NewHandler also catches a broken route table,
 // since the mux panics if two routes use the same pattern.

@@ -8,12 +8,11 @@ import (
 	"time"
 
 	"todo/internal/cache"
+	"todo/internal/metrics"
 	"todo/internal/queue"
 	"todo/internal/server"
 	"todo/internal/storage"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -26,11 +25,7 @@ func main() {
 
 	// One registry for the whole program, handed to every package that has
 	// metrics, like the logger. The metrics server below serves all of it.
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(
-		collectors.NewGoCollector(),                                       // memory, goroutines, GC
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}), // CPU, open files
-	)
+	reg := metrics.NewRegistry()
 
 	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -62,7 +57,7 @@ func main() {
 	// Metrics get their own server, so the public port never serves them.
 	go func() {
 		logger.Info("metrics server starting", "addr", *metricsAddr)
-		if err := http.ListenAndServe(*metricsAddr, server.NewMetricsHandler(reg)); err != nil {
+		if err := http.ListenAndServe(*metricsAddr, metrics.NewHandler(reg)); err != nil {
 			logger.Error("metrics server failed", "err", err)
 			os.Exit(1)
 		}

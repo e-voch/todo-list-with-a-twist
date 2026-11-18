@@ -1,6 +1,7 @@
 .PHONY: help fmt vet lint build run test test-e2e coverage cover up down reset kafka migrate-status migrate-up migrate-down \
 	nomad-agent nomad-volumes nomad-up nomad-down nomad-reset nomad-status nomad-url test-e2e-nomad \
-	nomad-logs-up nomad-logs-down nomad-dashboards-url nomad-metrics-up nomad-metrics-down nomad-prometheus-url
+	nomad-logs-up nomad-logs-down nomad-dashboards-url nomad-metrics-up nomad-metrics-down nomad-prometheus-url \
+	nomad-grafana-url nomad-traefik-url load-test
 
 DATABASE_URL = postgres://todo:todo@localhost:5432/todo?sslmode=disable
 UNIT_PKGS = $$(go list ./... | grep -v /test/e2e)
@@ -10,6 +11,9 @@ NOMAD_DIR = deployments/nomad
 NOMAD_INFRA = postgres postgres-replica redis kafka
 # OpenSearch first: Dashboards and Fluent Bit read its address when they start.
 NOMAD_LOGS = opensearch opensearch-dashboards fluent-bit
+# Prometheus first: Grafana reads its address when it starts. node-exporter
+# is a system job, so it runs on every node.
+NOMAD_METRICS = prometheus grafana node-exporter
 # Host volume folders for the Nomad jobs, the Nomad version of compose's named volumes.
 NOMAD_DATA = $(CURDIR)/.nomad-data
 
@@ -33,18 +37,21 @@ help:
 	@echo "  migrate-down    undo the last applied database migration"
 	@echo "  nomad-agent     start a local Nomad dev agent (blocks, run it in its own terminal)"
 	@echo "  nomad-volumes   create the pgdata, pgdata-replica, kafkadata and osdata host volumes on a real cluster (once)"
-	@echo "  nomad-up        deploy postgres, its replica, redis, kafka, then the todo app to Nomad"
+	@echo "  nomad-up        deploy postgres, its replica, redis, kafka, the todo app, then traefik to Nomad"
 	@echo "  nomad-logs-up   deploy opensearch, opensearch-dashboards and fluent-bit to Nomad"
 	@echo "  nomad-logs-down stop and remove the opensearch, opensearch-dashboards and fluent-bit jobs (keeps data)"
-	@echo "  nomad-metrics-up   deploy prometheus to Nomad"
-	@echo "  nomad-metrics-down stop and remove the prometheus job"
+	@echo "  nomad-metrics-up   deploy prometheus, grafana and node-exporter to Nomad"
+	@echo "  nomad-metrics-down stop and remove the prometheus, grafana and node-exporter jobs"
 	@echo "  nomad-down      stop and remove every Nomad job, logging included (keeps data)"
 	@echo "  nomad-reset     stop every Nomad job and DELETE all postgres and kafka data"
 	@echo "  nomad-status    show the status of every Nomad job"
 	@echo "  nomad-url       print the address the todo app is listening on"
 	@echo "  nomad-dashboards-url print the address OpenSearch Dashboards is listening on"
 	@echo "  nomad-prometheus-url print the address Prometheus is listening on"
+	@echo "  nomad-grafana-url print the address Grafana is listening on (login admin/admin)"
+	@echo "  nomad-traefik-url print the Traefik dashboard address on every node"
 	@echo "  test-e2e-nomad  run e2e tests against the app running on Nomad"
+	@echo "  load-test       run the k6 load test (up to 100 users) against URL, e.g. make load-test URL=http://1.2.3.4"
 
 fmt:
 	go fmt ./...
@@ -126,6 +133,7 @@ nomad-up:
 	nomad job run deployments/nomad/redis.nomad.hcl
 	nomad job run deployments/nomad/kafka.nomad.hcl
 	nomad job run deployments/nomad/app.nomad.hcl
+	nomad job run deployments/nomad/traefik.nomad.hcl
 
 # Kept out of nomad-up: opensearch alone reserves 2 GB of memory. Fluent Bit
 # is a system job, so it runs on every node and ships every allocation's logs.
@@ -136,6 +144,7 @@ nomad-logs-down:
 	-@for job in $(NOMAD_LOGS); do nomad job stop -purge $$job; done
 
 nomad-down: nomad-logs-down nomad-metrics-down
+	-nomad job stop -purge traefik
 	-nomad job stop -purge app
 	-@for job in $(NOMAD_INFRA); do nomad job stop -purge $$job; done
 
@@ -147,10 +156,10 @@ nomad-reset: nomad-down
 
 # Separate from nomad-up, like the logging jobs: the app runs without it.
 nomad-metrics-up:
-	nomad job run $(NOMAD_DIR)/prometheus.nomad.hcl
+	@for job in $(NOMAD_METRICS); do nomad job run $(NOMAD_DIR)/$$job.nomad.hcl || exit 1; done
 
 nomad-metrics-down:
-	-nomad job stop -purge prometheus
+	-@for job in $(NOMAD_METRICS); do nomad job stop -purge $$job; done
 
 nomad-status:
 	nomad job status
@@ -166,12 +175,24 @@ nomad-dashboards-url:
 nomad-prometheus-url:
 	@nomad service info -t '{{ range . }}http://{{ .Address }}:{{ .Port }}{{ "\n" }}{{ end }}' prometheus
 
+nomad-grafana-url:
+	@nomad service info -t '{{ range . }}http://{{ .Address }}:{{ .Port }}{{ "\n" }}{{ end }}' grafana
+
+nomad-traefik-url:
+	@nomad service info -t '{{ range . }}http://{{ .Address }}:{{ .Port }}/dashboard/{{ "\n" }}{{ end }}' traefik
+
 # The app's port on Nomad is dynamic, so look it up rather than hardcoding it.
 test-e2e-nomad:
 	@url="$$($(NOMAD_URL) 2>/dev/null | head -n1)"; \
 	if [ -z "$$url" ]; then echo "todo-app is not registered in Nomad (run make nomad-up)"; exit 1; fi; \
 	echo "testing $$url"; \
 	E2E_BASE_URL="$$url" go test -count=1 ./test/e2e/
+
+# k6 runs from its Docker image, so it needs no install. The script is read
+# from stdin, and URL is required so a load test never hits a server by accident.
+load-test:
+	@if [ -z "$(URL)" ]; then echo "usage: make load-test URL=http://<host>"; exit 1; fi
+	docker run --rm -i -e BASE_URL=$(URL) grafana/k6:1.3.0 run - < test/load/home.js
 
 application-image-build:
 	echo "to be done"
