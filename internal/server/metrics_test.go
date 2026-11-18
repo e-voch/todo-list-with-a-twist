@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"todo/internal/metrics"
 )
 
 func Test_measureRequests(t *testing.T) {
@@ -23,7 +25,7 @@ func Test_measureRequests(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	NewMetricsHandler(reg).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	metrics.NewHandler(reg).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := rec.Body.String()
 
 	for _, want := range []string{

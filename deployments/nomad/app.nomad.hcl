@@ -2,17 +2,18 @@ job "app" {
   type = "service"
 
   group "app" {
-    count = 3
+    count = 5
+    spread {
+      attribute = "${node.unique.id}"
+    }
+
+
     network {
       port "http" {
-        static = 8080
         to = 8080
-        }
-      # Private: the Hetzner load balancer only forwards 8080, so only the
-      # 10.0.0.x network (where Prometheus runs) can reach this port.
+      }
       port "metrics" {
-        static = 9091
-        to     = 9091
+        to = 9091
       }
     }
 
@@ -20,6 +21,12 @@ job "app" {
       name     = "todo-app"
       port     = "http"
       provider = "nomad"
+      # Opt in to Traefik, which sends every path to these instances.
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.todo.rule=PathPrefix(`/`)",
+        "traefik.http.routers.todo.entrypoints=web",
+      ]
       check {
         type     = "tcp"
         interval = "10s"
@@ -32,6 +39,7 @@ job "app" {
       name     = "todo-app-metrics"
       port     = "metrics"
       provider = "nomad"
+      tags     = ["metrics"] # Prometheus scrapes services with this tag
       check {
         type     = "http"
         path     = "/metrics"
@@ -97,12 +105,35 @@ EOF
 
   # A separate group, so Nomad can place and scale the worker independently of the app.
   group "worker" {
+    shutdown_delay = "5s"
+
+    network {
+      port "metrics" {
+        to = 9091
+      }
+    }
+
+    # The worker serves no web pages, only /metrics for Prometheus.
+    service {
+      name     = "worker-metrics"
+      port     = "metrics"
+      provider = "nomad"
+      tags     = ["metrics"] # Prometheus scrapes services with this tag
+      check {
+        type     = "http"
+        path     = "/metrics"
+        interval = "10s"
+        timeout  = "2s"
+      }
+    }
+
     task "worker" {
       driver = "docker"
       config {
         image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.6.2"
         entrypoint = ["./worker"]
         args       = ["-brokers", "${KAFKA_BROKERS}"]
+        ports      = ["metrics"]
       }
 
       template {

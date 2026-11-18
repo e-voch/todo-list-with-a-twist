@@ -39,8 +39,12 @@ func Test_handle_SetsSteps(t *testing.T) {
 			store := newFakeStepsWriter(nil)
 			e := event(typ)
 
-			if err := handle(store, discard, e); err != nil {
+			outcome, err := handle(store, discard, e)
+			if err != nil {
 				t.Fatalf("handle: %v", err)
+			}
+			if outcome != outcomeOK {
+				t.Errorf("outcome = %q, want %q", outcome, outcomeOK)
 			}
 			if got, ok := store.calls[e.Task.ID]; !ok || got == "" {
 				t.Errorf("steps for %s = %q, want non-empty", e.Task.ID, got)
@@ -53,8 +57,12 @@ func Test_handle_TaskGone(t *testing.T) {
 	// The task was deleted before its event was handled: skip, don't retry forever.
 	store := newFakeStepsWriter(fmt.Errorf("task: %w", storage.ErrNotFound))
 
-	if err := handle(store, discard, event(task.EventCreated)); err != nil {
+	outcome, err := handle(store, discard, event(task.EventCreated))
+	if err != nil {
 		t.Errorf("handle = %v, want nil", err)
+	}
+	if outcome != outcomeSkipped {
+		t.Errorf("outcome = %q, want %q", outcome, outcomeSkipped)
 	}
 }
 
@@ -62,7 +70,7 @@ func Test_handle_StoreError(t *testing.T) {
 	storeErr := errors.New("connection refused")
 	store := newFakeStepsWriter(storeErr)
 
-	err := handle(store, discard, event(task.EventEdited))
+	_, err := handle(store, discard, event(task.EventEdited))
 	if !errors.Is(err, storeErr) {
 		t.Errorf("handle = %v, want %v", err, storeErr)
 	}
@@ -73,8 +81,12 @@ func Test_handle_NoWrite(t *testing.T) {
 		t.Run(string(typ), func(t *testing.T) {
 			store := newFakeStepsWriter(errors.New("should not be called"))
 
-			if err := handle(store, discard, event(typ)); err != nil {
+			outcome, err := handle(store, discard, event(typ))
+			if err != nil {
 				t.Errorf("handle = %v, want nil", err)
+			}
+			if outcome != outcomeSkipped {
+				t.Errorf("outcome = %q, want %q", outcome, outcomeSkipped)
 			}
 			if len(store.calls) != 0 {
 				t.Errorf("SetRecommendedSteps called %d times, want 0", len(store.calls))

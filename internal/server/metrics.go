@@ -6,18 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
-
-// NewMetricsHandler serves /metrics for Prometheus to scrape: every metric
-// registered with reg, including other packages' (like the cache's). It runs
-// on its own port, which the load balancer doesn't forward, so only the
-// private network can read it.
-func NewMetricsHandler(reg prometheus.Gatherer) http.Handler {
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-	return mux
-}
 
 // httpMetrics are the request metrics measureRequests updates.
 type httpMetrics struct {
