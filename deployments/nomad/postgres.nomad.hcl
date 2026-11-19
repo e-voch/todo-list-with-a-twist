@@ -78,7 +78,11 @@ EOF
 
       resources {
         cpu    = 200
-        memory = 256
+        # Each connection is its own Postgres process with its own memory, and
+        # memory is a hard limit: at 256 MiB, a load test opening ~100
+        # connections got Postgres OOM killed. The app now caps its pool (see
+        # maxConns in internal/storage/postgres.go); this leaves room for that.
+        memory = 512
       }
     }
 
