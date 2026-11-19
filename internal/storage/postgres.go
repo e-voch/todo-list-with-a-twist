@@ -13,6 +13,14 @@ import (
 
 var ErrNotFound = errors.New("task not found")
 
+// maxConns caps how many connections one app instance opens to Postgres.
+// Without a cap, every request waiting on the database opens another one, and
+// Postgres (a process and memory per connection) runs out of memory under
+// load. With the cap, extra requests wait in the app instead. Keep
+// maxConns × the most app instances (the scaling max) under Postgres's
+// max_connections (100).
+const maxConns = 10
+
 type PostgresStore struct {
 	db *sql.DB
 }
@@ -22,6 +30,10 @@ func NewPostgresStore(url string) (*PostgresStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
+	db.SetMaxOpenConns(maxConns)
+	// Keep the connections open between requests instead of reconnecting;
+	// the default keeps only 2 idle.
+	db.SetMaxIdleConns(maxConns)
 
 	err = db.Ping()
 	if err != nil {

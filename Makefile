@@ -1,7 +1,7 @@
 .PHONY: help fmt vet lint build run test test-e2e coverage cover up down reset kafka migrate-status migrate-up migrate-down \
 	nomad-agent nomad-volumes nomad-up nomad-down nomad-reset nomad-status nomad-url test-e2e-nomad \
 	nomad-logs-up nomad-logs-down nomad-dashboards-url nomad-metrics-up nomad-metrics-down nomad-prometheus-url \
-	nomad-grafana-url nomad-traefik-url load-test
+	nomad-grafana-url nomad-traefik-url 
 
 DATABASE_URL = postgres://todo:todo@localhost:5432/todo?sslmode=disable
 UNIT_PKGS = $$(go list ./... | grep -v /test/e2e)
@@ -51,7 +51,6 @@ help:
 	@echo "  nomad-grafana-url print the address Grafana is listening on (login admin/admin)"
 	@echo "  nomad-traefik-url print the Traefik dashboard address on every node"
 	@echo "  test-e2e-nomad  run e2e tests against the app running on Nomad"
-	@echo "  load-test       run the k6 load test (up to 100 users) against URL, e.g. make load-test URL=http://1.2.3.4"
 
 fmt:
 	go fmt ./...
@@ -188,12 +187,6 @@ test-e2e-nomad:
 	if [ -z "$$url" ]; then echo "todo-app is not registered in Nomad (run make nomad-up)"; exit 1; fi; \
 	echo "testing $$url"; \
 	E2E_BASE_URL="$$url" go test -count=1 ./test/e2e/
-
-# k6 runs from its Docker image, so it needs no install. The script is read
-# from stdin, and URL is required so a load test never hits a server by accident.
-load-test:
-	@if [ -z "$(URL)" ]; then echo "usage: make load-test URL=http://<host>"; exit 1; fi
-	docker run --rm -i -e BASE_URL=$(URL) grafana/k6:1.3.0 run - < test/load/home.js
 
 application-image-build:
 	echo "to be done"
