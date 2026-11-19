@@ -1,10 +1,15 @@
 {
   "uid": "todo-app",
   "title": "ToDo App",
-  "tags": ["todo"],
+  "tags": [
+    "todo"
+  ],
   "timezone": "browser",
   "schemaVersion": 41,
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "refresh": "30s",
   "panels": [
     {
@@ -12,10 +17,21 @@
       "type": "stat",
       "title": "Instances up",
       "description": "App copies Prometheus can scrape. Should equal the job's count.",
-      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(up{job=\"todo\"})" }
+        {
+          "refId": "A",
+          "expr": "sum(up{job=\"todo\"})"
+        }
       ]
     },
     {
@@ -23,9 +39,22 @@
       "type": "timeseries",
       "title": "Request rate",
       "description": "Requests per second by route. The flat ~0.2 req/s on /{$} is the load balancer's health check.",
-      "gridPos": { "x": 4, "y": 0, "w": 10, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 10,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
@@ -39,12 +68,23 @@
       "type": "timeseries",
       "title": "Error rate (5xx)",
       "description": "Share of responses that are server errors. 'or vector(0)' shows 0% when no 5xx has ever happened.",
-      "gridPos": { "x": 14, "y": 0, "w": 10, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "x": 14,
+        "y": 0,
+        "w": 10,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "custom": { "axisSoftMin": 0, "axisSoftMax": 0.1 }
+          "custom": {
+            "axisSoftMin": 0,
+            "axisSoftMax": 0.1
+          }
         },
         "overrides": []
       },
@@ -61,9 +101,22 @@
       "type": "timeseries",
       "title": "Latency p95",
       "description": "95% of requests finish faster than this. Estimated from histogram buckets, so values sit just under a bucket edge (5ms, 10ms, ...).",
-      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
@@ -77,10 +130,22 @@
       "type": "timeseries",
       "title": "Cache hit ratio",
       "description": "Hits / all lookups (hit, miss, error), per operation. ~91% at idle: the 1-minute TTL expires once per 12 health-check lookups.",
-      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "x": 8,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
         "overrides": []
       },
       "targets": [
@@ -96,12 +161,26 @@
       "type": "timeseries",
       "title": "Responses by status",
       "description": "Each status code's share of all responses, stacked to 100%.",
-      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "x": 16,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "custom": { "stacking": { "mode": "percent", "group": "A" }, "fillOpacity": 50 }
+          "custom": {
+            "stacking": {
+              "mode": "percent",
+              "group": "A"
+            },
+            "fillOpacity": 50
+          }
         },
         "overrides": []
       },
@@ -110,6 +189,115 @@
           "refId": "A",
           "expr": "sum by (status) (rate(http_requests_total{job=\"todo\"}[5m]))",
           "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Worker",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Worker events",
+      "description": "Events handled per second. 'ok' did work; 'skipped' had nothing to do (delete, task gone, unknown type).",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (type, outcome) (rate(worker_events_total{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "{{type}} {{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Worker errors",
+      "description": "Failed handle attempts (each retry counts) and Kafka errors. Handle errors with no events means the worker is stuck retrying one event.",
+      "gridPos": {
+        "x": 8,
+        "y": 17,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "axisSoftMin": 0,
+            "axisSoftMax": 1
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (type) (rate(worker_handle_errors_total{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "handle {{type}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (op) (rate(worker_kafka_errors_total{job=\"worker-metrics\"}[5m]))",
+          "legendFormat": "kafka {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Worker handle time p95",
+      "description": "95% of handle attempts finish faster than this.",
+      "gridPos": {
+        "x": 16,
+        "y": 17,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95,\n  sum by (le) (rate(worker_handle_duration_seconds_bucket{job=\"worker-metrics\"}[5m]))\n)",
+          "legendFormat": "p95"
         }
       ]
     }
