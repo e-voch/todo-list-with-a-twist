@@ -36,7 +36,7 @@ help:
 	@echo "  migrate-up      apply all pending database migrations"
 	@echo "  migrate-down    undo the last applied database migration"
 	@echo "  nomad-agent     start a local Nomad dev agent (blocks, run it in its own terminal)"
-	@echo "  nomad-volumes   create the pgdata, pgdata-replica, kafkadata and osdata host volumes on a real cluster (once)"
+	@echo "  nomad-volumes   create the pgdata, pgdata-replica, kafkadata, osdata and promdata host volumes on a real cluster (once)"
 	@echo "  nomad-up        deploy postgres, its replica, redis, kafka, the todo app, then traefik to Nomad"
 	@echo "  nomad-logs-up   deploy opensearch, opensearch-dashboards and fluent-bit to Nomad"
 	@echo "  nomad-logs-down stop and remove the opensearch, opensearch-dashboards and fluent-bit jobs (keeps data)"
@@ -124,6 +124,7 @@ nomad-volumes:
 	nomad volume create $(NOMAD_DIR)/volumes/pgdata-replica.volume.hcl
 	nomad volume create $(NOMAD_DIR)/volumes/kafkadata.volume.hcl
 	nomad volume create $(NOMAD_DIR)/volumes/osdata.volume.hcl
+	nomad volume create $(NOMAD_DIR)/volumes/promdata.volume.hcl
 
 # job run waits until each deployment is healthy, so the todo job starts
 # only after the services it looks up are registered

@@ -4,6 +4,15 @@ job "prometheus" {
   group "prometheus" {
     shutdown_delay = "5s"
 
+    # Metrics history lives here, so it survives restarts and redeploys.
+    # Create it once with: nomad volume create deployments/nomad/volumes/promdata.volume.hcl
+    volume "promdata" {
+      type            = "host"
+      source          = "promdata"
+      access_mode     = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+
     network {
       port "http" {
         static = 9090
@@ -35,6 +44,11 @@ job "prometheus" {
           "--storage.tsdb.path=/prometheus",
           "--storage.tsdb.retention.time=15d",
         ]
+      }
+
+      volume_mount {
+        volume      = "promdata"
+        destination = "/prometheus" # the --storage.tsdb.path above
       }
 
       template {
