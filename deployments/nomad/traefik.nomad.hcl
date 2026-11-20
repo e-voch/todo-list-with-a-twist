@@ -1,5 +1,5 @@
-
 job "traefik" {
+  node_pool = "all"
   type = "system"
 
   group "traefik" {

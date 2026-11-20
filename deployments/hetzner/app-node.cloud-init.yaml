@@ -1,0 +1,79 @@
+#cloud-config
+
+write_files:
+  - path: /etc/systemd/network/05-private.network
+    content: |
+      [Match]
+      Name=en*
+
+      [Network]
+      DHCP=yes
+      Gateway=10.0.0.1
+
+  - path: /etc/systemd/resolved.conf.d/dns.conf
+    content: |
+      [Resolve]
+      DNS=185.12.64.1 185.12.64.2
+
+  - path: /etc/nomad.d/nomad.hcl
+    content: |
+      datacenter = "helsinki"
+      data_dir   = "/opt/nomad/data"
+      bind_addr  = "0.0.0.0"
+
+      advertise {
+        http = "{{ GetPrivateInterfaces | include \"network\" \"10.0.0.0/16\" | attr \"address\" }}"
+        rpc  = "{{ GetPrivateInterfaces | include \"network\" \"10.0.0.0/16\" | attr \"address\" }}"
+        serf = "{{ GetPrivateInterfaces | include \"network\" \"10.0.0.0/16\" | attr \"address\" }}"
+      }
+
+      client {
+        enabled   = true
+        node_pool = "app"
+        node_class = "app"
+        servers   = ["10.0.0.3", "10.0.0.4", "10.0.0.5"]
+
+        host_volume "nomad-alloc" {
+          path      = "/opt/nomad/data/alloc"
+          read_only = true
+        }
+      }
+
+runcmd:
+  - apt-get remove -y hc-utils
+  - systemctl restart systemd-networkd systemd-resolved
+  - until curl -sf https://apt.releases.hashicorp.com > /dev/null; do sleep 2; done
+
+    # Installing Docker 
+  - apt-get update
+  - apt-get install -y ca-certificates curl
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - |
+    cat > /etc/apt/sources.list.d/docker.sources <<EOF
+    Types: deb
+    URIs: https://download.docker.com/linux/ubuntu
+    Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+    Components: stable
+    Architectures: $(dpkg --print-architecture)
+    Signed-By: /etc/apt/keyrings/docker.asc
+    EOF
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io
+
+
+  # Installing Nomad
+  - apt-get install -y wget gpg coreutils
+  - wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  - echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" > /etc/apt/sources.list.d/hashicorp.list
+  - apt-get update
+  - apt-get install -y -o Dpkg::Options::=--force-confold nomad=2.1.1-1
+
+
+  #start nomad
+  - mkdir -p /opt/nomad/data/alloc
+  - systemctl enable --now nomad
+
+
+
