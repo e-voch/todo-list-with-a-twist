@@ -193,13 +193,61 @@
       ]
     },
     {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Memory per copy",
+      "description": "Resident memory of each app copy. The red line is the 128 MiB limit (memory in app.nomad.hcl): a copy that crosses it is OOM killed and restarted. Normal is ~55-70 MiB; it grows when requests pile up inside a copy.",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 134217728
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{job=\"todo\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
       "id": 7,
       "type": "row",
       "title": "Worker",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 24,
         "w": 24,
         "h": 1
       },
@@ -212,7 +260,7 @@
       "description": "Events handled per second. 'ok' did work; 'skipped' had nothing to do (delete, task gone, unknown type).",
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 25,
         "w": 8,
         "h": 8
       },
@@ -241,7 +289,7 @@
       "description": "Failed handle attempts (each retry counts) and Kafka errors. Handle errors with no events means the worker is stuck retrying one event.",
       "gridPos": {
         "x": 8,
-        "y": 17,
+        "y": 25,
         "w": 8,
         "h": 8
       },
@@ -279,7 +327,7 @@
       "description": "95% of handle attempts finish faster than this.",
       "gridPos": {
         "x": 16,
-        "y": 17,
+        "y": 25,
         "w": 8,
         "h": 8
       },
