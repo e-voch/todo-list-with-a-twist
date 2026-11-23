@@ -137,7 +137,9 @@ scaling "app_nodes" {
       # (Private-Nomad-App-<6 random>). Change it only while no app node exists,
       # or the plugin loses track of the servers it made under the old one.
       hcloud_group_id                = "Private-Nomad-App"
-      hcloud_labels                  = "role=app"
+      # lb=web: load-balancer-1 targets every server with this label, so new
+      # app nodes get traffic once their Traefik passes its health check.
+      hcloud_labels                  = "role=app,lb=web"
 
       # The cloud-init file, read from the repo when you run this job (run it
       # from the repo root). Base64 so its template braces survive this template.
