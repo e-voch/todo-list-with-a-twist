@@ -2,7 +2,10 @@ package cache
 
 import (
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -51,5 +54,72 @@ func TestStore_CountsErrorsWhenRedisIsDown(t *testing.T) {
 				t.Errorf("cache_requests_total{op=%q,result=%q} = %v, want 0", op, result, got)
 			}
 		}
+	}
+}
+
+// slowStore counts its calls and holds each one until release is closed, so
+// a test can line up many requests while the first is still running.
+type slowStore struct {
+	task.Store
+	lists, counts atomic.Int32
+	release       chan struct{}
+}
+
+func (s *slowStore) List(string, int, int) ([]task.Task, error) {
+	s.lists.Add(1)
+	<-s.release
+	return []task.Task{{Title: "Buy milk"}}, nil
+}
+
+func (s *slowStore) Count(string) (int, error) {
+	s.counts.Add(1)
+	<-s.release
+	return 1, nil
+}
+
+// Many identical lookups at the same moment must reach the database once, not
+// once each: that is what stops a stampede after the cache is cleared.
+func TestStore_MergesIdenticalLoads(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "localhost:1", MaxRetries: -1})
+	t.Cleanup(func() { _ = rdb.Close() })
+	inner := &slowStore{release: make(chan struct{})}
+	s := New(inner, rdb, 0, slog.New(slog.DiscardHandler), prometheus.NewRegistry())
+
+	const callers = 10
+	var wg sync.WaitGroup
+	errs := make(chan error, 2*callers)
+	for range callers {
+		wg.Go(func() {
+			tasks, err := s.List("task", 10, 0)
+			if err == nil && len(tasks) != 1 {
+				t.Errorf("List returned %d tasks, want 1", len(tasks))
+			}
+			errs <- err
+		})
+		wg.Go(func() {
+			n, err := s.Count("task")
+			if err == nil && n != 1 {
+				t.Errorf("Count = %d, want 1", n)
+			}
+			errs <- err
+		})
+	}
+
+	// Give every caller time to join the load already in flight, then let it finish.
+	time.Sleep(200 * time.Millisecond)
+	close(inner.release)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("lookup failed: %v", err)
+		}
+	}
+	if got := inner.lists.Load(); got != 1 {
+		t.Errorf("database List calls = %d, want 1", got)
+	}
+	if got := inner.counts.Load(); got != 1 {
+		t.Errorf("database Count calls = %d, want 1", got)
 	}
 }

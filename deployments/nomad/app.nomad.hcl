@@ -31,7 +31,10 @@ job "app" {
 
         check "cpu" {
           source = "prometheus"
-          query  = "100 * avg(rate(process_cpu_seconds_total{job=\"todo\"}[1m])) / 0.15"
+          # max, not avg: Traefik gives every copy the same share, so one copy at
+          # its CPU limit queues requests (seen at 10 s p95) while the average
+          # still looks fine.
+          query  = "100 * max(rate(process_cpu_seconds_total{job=\"todo\"}[1m])) / 0.15"
 
           strategy "target-value" {
             # 80% of 300 MHz is 0.12 cores, roughly 90 req/s per instance,
@@ -91,7 +94,7 @@ job "app" {
 
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.2"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.3"
         entrypoint = ["./migrate"]
         args       = ["up"]
       }
@@ -113,7 +116,7 @@ EOF
     task "app" {
       driver = "docker"
       config {
-        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.2"
+        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.3"
         ports = ["http", "metrics"]
         cpu_hard_limit = true
         args = ["-brokers", "${KAFKA_BROKERS}"]
@@ -163,7 +166,7 @@ EOF
     task "worker" {
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.2"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.3"
         entrypoint = ["./worker"]
         args       = ["-brokers", "${KAFKA_BROKERS}"]
         ports      = ["metrics"]
