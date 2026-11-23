@@ -64,7 +64,9 @@ job "kafka" {
       }
 
       resources {
-        cpu    = 500
+        # Measured 36 MHz at 450 req/s (2026-11-23). Reservations should match
+        # real use, so Nomad's per-node totals are true.
+        cpu    = 200
         memory = 1024
       }
     }

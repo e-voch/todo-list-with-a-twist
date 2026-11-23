@@ -53,7 +53,9 @@ job "traefik" {
       }
 
       resources {
-        cpu    = 200
+        # Measured 250-430 MHz at 450 req/s (2026-11-23). Reservations should match
+        # real use, so Nomad's per-node totals are true.
+        cpu    = 500
         # 128 was OOM-killed under load: slow backends mean many open
         # connections held at once.
         memory = 256
