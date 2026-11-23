@@ -35,11 +35,6 @@ job "autoscaler" {
 
       config {
         image = "hashicorp/nomad-autoscaler:0.6.0"
-        # The download isn't executable, and it belongs to root while the image
-        # runs as a normal user, so chmod on it fails. Copy it to /tmp (the copy
-        # belongs to us) and make the copy executable.
-        # entrypoint, not command: the image's entrypoint is nomad-autoscaler,
-        # and command would only become its arguments.
         entrypoint = ["/bin/sh", "-c"]
         args = [<<EOF
 mkdir -p /tmp/plugins && cp /local/plugins/hcloud-server /tmp/plugins/ \
@@ -81,6 +76,8 @@ target "hcloud-server" {
   config = {
     # Stored with: nomad var put nomad/jobs/autoscaler hcloud_token=... ssh_key=...
     hcloud_token = "{{ with nomadVar "nomad/jobs/autoscaler" }}{{ .hcloud_token }}{{ end }}"
+    # Random part of new server names: Private-Nomad-App-3f9a1c.
+    hcloud_random_suffix_len = "6"
   }
 }
 EOF
@@ -118,13 +115,15 @@ scaling "app_nodes" {
     target "hcloud-server" {
       # Log what it would do without creating or deleting servers.
       # Set to "false" once the decisions look right.
-      dry-run = "true"
+      dry-run = "false"
 
       # Which Nomad nodes are app nodes (the plugin doesn't know node pools).
       node_class             = "app"
       node_drain_deadline    = "5m"
       node_purge             = "true"
-      node_selector_strategy = "least_busy"
+      # Not least_busy: in plugin v0.4.3 it crashes on scale-in (nil pointer in
+      # the SDK's least_busy.go) with Nomad 2.1.1.
+      node_selector_strategy = "newest_create_index"
 
       # The new server, as in the console's "Add Server" form.
       hcloud_location                = "hel1"
@@ -134,7 +133,10 @@ scaling "app_nodes" {
       hcloud_public_net_enable_ipv4  = "false"
       hcloud_public_net_enable_ipv6  = "false"
       hcloud_ssh_keys                = "{{ with nomadVar "nomad/jobs/autoscaler" }}{{ .ssh_key }}{{ end }}"
-      hcloud_group_id                = "app-nodes" # label that marks servers the plugin owns
+      # Label that marks servers the plugin owns, and the start of their names
+      # (Private-Nomad-App-<6 random>). Change it only while no app node exists,
+      # or the plugin loses track of the servers it made under the old one.
+      hcloud_group_id                = "Private-Nomad-App"
       hcloud_labels                  = "role=app"
 
       # The cloud-init file, read from the repo when you run this job (run it
