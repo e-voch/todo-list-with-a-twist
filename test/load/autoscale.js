@@ -1,6 +1,6 @@
 // Load test for the autoscaler: steps the load up past the CPU scaling
 // threshold, holding each level long enough for it to react, then drops to a
-// quiet level to watch it scale back down. Takes about 24 minutes.
+// quiet level to watch it scale back down. Takes about 30 minutes.
 //
 // Run with:
 //   docker run --rm -i grafana/k6:1.3.0 run - < test/load/autoscale.js
@@ -26,7 +26,9 @@ export const options = {
         { duration: '1m', target: 300 },
         { duration: '5m', target: 300 },  // above ~270: expect 3 → 4
         { duration: '1m', target: 450 },
-        { duration: '5m', target: 450 },  // expect → 5 or 6
+        { duration: '5m', target: 450 },  // expect → 5 or 6; the app node boots at 5
+        { duration: '1m', target: 700 },
+        { duration: '5m', target: 700 },  // expect → 7 or 8, the extra copies on the app node
         { duration: '1m', target: 50 },
         { duration: '6m', target: 50 },   // quiet: expect it to step back down to 3
       ],

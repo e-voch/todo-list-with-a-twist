@@ -54,7 +54,9 @@ job "traefik" {
 
       resources {
         cpu    = 200
-        memory = 128
+        # 128 was OOM-killed under load: slow backends mean many open
+        # connections held at once.
+        memory = 256
       }
     }
   }
