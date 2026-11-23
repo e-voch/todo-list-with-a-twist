@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"todo/internal/task"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 )
 
 // timeout bounds each Redis call, so a slow Redis can't slow every request.
@@ -33,6 +35,10 @@ type Store struct {
 	// requests counts List and Count lookups by result: hit, miss, or error
 	// (Redis failed or held an unreadable entry, so the lookup skipped the cache).
 	requests *prometheus.CounterVec
+	// flight merges identical database loads that run at the same time. Every
+	// write clears the whole cache, so under load many requests miss on the
+	// same key at once; without this they would all run the same query.
+	flight singleflight.Group
 }
 
 // New wraps inner with a Redis cache and registers the cache's metrics with reg.
@@ -82,6 +88,58 @@ func (s *Store) invalidate() {
 	Invalidate(s.rdb, s.logger)
 }
 
+// load runs fn once for all callers asking for the same key at the same time;
+// they all get its result. When save is true the result is also stored in
+// Redis under key.
+func (s *Store) load(key string, save bool, fn func() (any, error)) (any, error) {
+	v, err, _ := s.flight.Do(key, func() (any, error) {
+		v, err := fn()
+		if err != nil {
+			return nil, err // never cache errors
+		}
+		if save {
+			s.save(key, v)
+		}
+		return v, nil
+	})
+	return v, err
+}
+
+// save stores v in Redis. Failures only log: the caller already has its answer.
+func (s *Store) save(key string, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		s.logger.Error("cache encode failed", "key", key, "err", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := s.rdb.Set(ctx, key, data, s.ttl).Err(); err != nil {
+		s.logger.Error("cache set failed", "key", key, "err", err)
+	}
+}
+
+func (s *Store) loadList(key string, save bool, query string, limit, offset int) ([]task.Task, error) {
+	v, err := s.load(key, save, func() (any, error) {
+		return s.Store.List(query, limit, offset)
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Callers that shared one load get the same slice; give each its own copy.
+	return slices.Clone(v.([]task.Task)), nil
+}
+
+func (s *Store) loadCount(key string, save bool, query string) (int, error) {
+	v, err := s.load(key, save, func() (any, error) {
+		return s.Store.Count(query)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return v.(int), nil
+}
+
 // Invalidate makes every cached entry stale. Code that writes tasks without
 // going through Store, such as the worker, calls it after each write. If
 // Redis is down this only logs: the write already succeeded, and the TTL
@@ -103,7 +161,9 @@ func (s *Store) List(query string, limit, offset int) ([]task.Task, error) {
 		cancel()
 		s.logger.Error("cache generation failed", "err", err)
 		s.requests.WithLabelValues("list", "error").Inc()
-		return s.Store.List(query, limit, offset) // can't trust the cache: skip it
+		// Can't trust the cache: skip it, but still merge identical loads, or
+		// a Redis outage sends every request to Postgres at once.
+		return s.loadList(fmt.Sprintf("nocache:list:%d:%d:%s", limit, offset, query), false, query, limit, offset)
 	}
 	// query goes last: it is user input and may itself contain ':'.
 	key := fmt.Sprintf("todo:v1:gen%d:list:%d:%d:%s", gen, limit, offset, query)
@@ -129,22 +189,7 @@ func (s *Store) List(query string, limit, offset int) ([]task.Task, error) {
 		s.requests.WithLabelValues("list", "error").Inc()
 	}
 
-	tasks, err := s.Store.List(query, limit, offset)
-	if err != nil {
-		return nil, err // never cache errors
-	}
-
-	data, err = json.Marshal(tasks)
-	if err != nil {
-		s.logger.Error("cache encode failed", "key", key, "err", err)
-		return tasks, nil
-	}
-	ctx, cancel = context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	if err := s.rdb.Set(ctx, key, data, s.ttl).Err(); err != nil {
-		s.logger.Error("cache set failed", "key", key, "err", err)
-	}
-	return tasks, nil
+	return s.loadList(key, true, query, limit, offset)
 }
 
 func (s *Store) Count(query string) (int, error) {
@@ -154,7 +199,8 @@ func (s *Store) Count(query string) (int, error) {
 		cancel()
 		s.logger.Error("cache generation failed", "err", err)
 		s.requests.WithLabelValues("count", "error").Inc()
-		return s.Store.Count(query) // can't trust the cache: skip it
+		// Can't trust the cache: skip it, but still merge identical loads.
+		return s.loadCount("nocache:count:"+query, false, query)
 	}
 	key := fmt.Sprintf("todo:v1:gen%d:count:%s", gen, query)
 
@@ -178,20 +224,5 @@ func (s *Store) Count(query string) (int, error) {
 		s.logger.Error("cache get failed", "key", key, "err", err)
 		s.requests.WithLabelValues("count", "error").Inc()
 	}
-	n, err := s.Store.Count(query) // ask Postgres
-	if err != nil {
-		return 0, err // don't save errors
-	}
-
-	data, err = json.Marshal(n) // int to JSON bytes
-	if err != nil {
-		s.logger.Error("cache encode failed", "key", key, "err", err)
-		return n, nil
-	}
-	ctx, cancel = context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	if err := s.rdb.Set(ctx, key, data, s.ttl).Err(); err != nil {
-		s.logger.Error("cache set failed", "key", key, "err", err)
-	}
-	return n, nil
+	return s.loadCount(key, true, query)
 }
