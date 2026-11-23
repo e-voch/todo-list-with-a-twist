@@ -91,7 +91,7 @@ job "app" {
 
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.0"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.1"
         entrypoint = ["./migrate"]
         args       = ["up"]
       }
@@ -113,7 +113,7 @@ EOF
     task "app" {
       driver = "docker"
       config {
-        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.0"
+        image = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.1"
         ports = ["http", "metrics"]
         cpu_hard_limit = true
         args = ["-brokers", "${KAFKA_BROKERS}"]
@@ -163,7 +163,7 @@ EOF
     task "worker" {
       driver = "docker"
       config {
-        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.0"
+        image      = "ghcr.io/e-voch/todo-list-with-a-twist:1.8.1"
         entrypoint = ["./worker"]
         args       = ["-brokers", "${KAFKA_BROKERS}"]
         ports      = ["metrics"]
