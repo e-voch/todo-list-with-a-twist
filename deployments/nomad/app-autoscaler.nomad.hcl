@@ -35,10 +35,15 @@ job "autoscaler" {
 
       config {
         image = "hashicorp/nomad-autoscaler:0.6.0"
-        # The download isn't executable, so make it executable before starting.
-        command = "/bin/sh"
-        args = ["-c", <<EOF
-chmod +x /local/plugins/hcloud-server && exec nomad-autoscaler agent \
+        # The download isn't executable, and it belongs to root while the image
+        # runs as a normal user, so chmod on it fails. Copy it to /tmp (the copy
+        # belongs to us) and make the copy executable.
+        # entrypoint, not command: the image's entrypoint is nomad-autoscaler,
+        # and command would only become its arguments.
+        entrypoint = ["/bin/sh", "-c"]
+        args = [<<EOF
+mkdir -p /tmp/plugins && cp /local/plugins/hcloud-server /tmp/plugins/ \
+  && chmod +x /tmp/plugins/hcloud-server && exec nomad-autoscaler agent \
   -config /secrets/config.hcl -policy-dir /local/policies -http-bind-address 0.0.0.0
 EOF
         ]
@@ -49,7 +54,7 @@ EOF
       template {
         destination = "secrets/config.hcl"
         data        = <<EOF
-plugin_dir = "/local/plugins"
+plugin_dir = "/tmp/plugins"
 
 nomad {
   address = "http://{{ env "attr.unique.network.ip-address" }}:4646"
@@ -89,7 +94,7 @@ EOF
 scaling "app_nodes" {
   enabled = true
   min     = 0
-  max     = 3
+  max     = 1
 
   policy {
     evaluation_interval = "1m"
@@ -100,10 +105,10 @@ scaling "app_nodes" {
 
     # App nodes wanted, so app slots stay under 80% full:
     #   copies / (2 per node * 0.8) = nodes needed, minus the 3 permanent ones.
-    #   3-4 copies -> 0, 5-6 -> 1, 7 -> 2.
+    #   3-4 copies -> 0, 5-8 -> 1 (it asks for 2 at 7-8, max caps it at 1).
     # Change the 1.6 if the per-node cap in app.nomad.hcl changes, and the 3
     # if the number of permanent nodes changes.
-    check "app_slots" {
+    check "app_slots" { 
       source = "prometheus"
       query  = "clamp_min(ceil(count(up{job=\"todo\"} == 1) / 1.6) - 3, 0)"
 
@@ -133,7 +138,7 @@ scaling "app_nodes" {
       hcloud_labels                  = "role=app"
 
       # The cloud-init file, read from the repo when you run this job (run it
-      # from the repo root). Base64 so its {{ }} survive this template.
+      # from the repo root). Base64 so its template braces survive this template.
       hcloud_user_data             = "${base64encode(file("deployments/hetzner/app-node.cloud-init.yaml"))}"
       hcloud_b64_user_data_encoded = "true"
     }

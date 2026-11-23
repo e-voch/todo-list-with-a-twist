@@ -23,10 +23,10 @@ job "app" {
     scaling {
       enabled = true
       min     = 3
-      max     = 7
+      max     = 8
 
       policy {
-        evaluation_interval = "30s" # run the loop every 30s
+        evaluation_interval = "30s" # run the loop every 30sd
         cooldown            = "2m"  # after a change, wait before changing again
 
         check "cpu" {
