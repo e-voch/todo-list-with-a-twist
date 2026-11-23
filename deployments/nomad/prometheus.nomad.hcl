@@ -79,7 +79,9 @@ EOF
       }
 
       resources {
-        cpu    = 200
+        # Measured 29 MHz at 450 req/s (2026-11-23). Reservations should match
+        # real use, so Nomad's per-node totals are true.
+        cpu    = 100
         memory = 512
       }
     }

@@ -20,7 +20,9 @@ job "redis" {
         args  = ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
       }
       resources {
-        cpu    = 100   # MHz
+        # Measured 200 MHz at 450 req/s and 440 at 700 req/s (2026-11-23). Reservations should match
+        # real use, so Nomad's per-node totals are true.
+        cpu    = 500   # MHz
         memory = 128   # MB
       }
     }

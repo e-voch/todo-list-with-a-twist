@@ -77,7 +77,9 @@ EOF
       }
 
       resources {
-        cpu    = 200
+        # Measured 616 MHz at 450 req/s and 858 at 700 req/s (2026-11-23). Reservations should match
+        # real use, so Nomad's per-node totals are true.
+        cpu    = 1500
         # Each connection is its own Postgres process with its own memory, and
         # memory is a hard limit: at 256 MiB, a load test opening ~100
         # connections got Postgres OOM killed. The app now caps its pool (see

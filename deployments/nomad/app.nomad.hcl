@@ -34,10 +34,12 @@ job "app" {
           # max, not avg: Traefik gives every copy the same share, so one copy at
           # its CPU limit queues requests (seen at 10 s p95) while the average
           # still looks fine.
-          query  = "100 * max(rate(process_cpu_seconds_total{job=\"todo\"}[1m])) / 0.15"
+          # 0.3 = the copy's CPU limit in cores: 600 MHz on nodes that count
+          # 2000 MHz per core. Change both together.
+          query  = "100 * max(rate(process_cpu_seconds_total{job=\"todo\"}[1m])) / 0.3"
 
           strategy "target-value" {
-            # 80% of 300 MHz is 0.12 cores, roughly 90 req/s per instance,
+            # 80% of 600 MHz is 0.24 cores, roughly 180 req/s per instance,
             # leaving 20% headroom before the hard limit throttles it.
             target = 80
           }
@@ -133,7 +135,9 @@ EOF
       }
 
       resources {
-        cpu    = 300
+        # Hard limit (cpu_hard_limit above). Was 300: nodes sat at ~40% CPU
+        # while copies hit their limit. The query's 0.3 must match this.
+        cpu    = 600
         memory = 128
       }
     }
