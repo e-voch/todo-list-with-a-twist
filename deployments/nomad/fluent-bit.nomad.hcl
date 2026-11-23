@@ -1,4 +1,5 @@
 job "fluent-bit" {
+  node_pool = "all"
   type = "system"
 
   group "fluent-bit" {

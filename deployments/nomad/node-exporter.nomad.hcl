@@ -1,5 +1,6 @@
 # Machine metrics (CPU, memory, disk, network) for every node.
 job "node-exporter" {
+  node_pool = "all"
   type = "system" 
 
   group "node-exporter" {
