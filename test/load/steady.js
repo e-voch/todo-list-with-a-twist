@@ -9,8 +9,9 @@
 import http from 'k6/http';
 import { check } from 'k6';
 
-// Spread requests over all three Traefiks, like the load balancer would.
-const TARGETS = (__ENV.BASE_URLS || 'http://10.0.0.3:8000,http://10.0.0.4:8000,http://10.0.0.5:8000').split(',');
+// Spread requests over both Traefiks (Private-Nomad-1 and -2), like the load
+// balancer would.
+const TARGETS = (__ENV.BASE_URLS || 'http://10.0.0.3:8000,http://10.0.0.4:8000').split(',');
 const RATE = parseInt(__ENV.RATE || '450', 10);
 const DURATION = __ENV.DURATION || '3m';
 
