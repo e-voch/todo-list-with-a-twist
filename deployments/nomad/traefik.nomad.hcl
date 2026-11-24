@@ -1,8 +1,15 @@
 job "traefik" {
-  node_pool = "all"
   type = "system"
 
   group "traefik" {
+    # Only the two servers labelled lb=web in Hetzner, which the load
+    # balancer targets. Keep this list and those labels in sync.
+    constraint {
+      attribute = "${node.unique.name}"
+      operator  = "set_contains_any"
+      value     = "Private-Nomad-1,Private-Nomad-2"
+    }
+
     shutdown_delay = "5s"
 
     network {
