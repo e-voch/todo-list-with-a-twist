@@ -75,7 +75,7 @@ func migrate(ctx context.Context, url string) error {
 func newTestStore(t *testing.T) *PostgresStore {
 	t.Helper()
 
-	store, err := NewPostgresStore(testURL)
+	store, err := NewPostgresStore(testURL, "")
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}

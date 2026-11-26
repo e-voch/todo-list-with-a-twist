@@ -27,7 +27,7 @@ func main() {
 	// metrics, like the logger. The metrics server below serves all of it.
 	reg := metrics.NewRegistry()
 
-	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
+	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"), os.Getenv("DATABASE_READ_URL"))
 	if err != nil {
 		logger.Error("failed to connect to postgres", "err", err)
 		os.Exit(1)

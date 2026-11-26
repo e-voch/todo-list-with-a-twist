@@ -62,7 +62,8 @@ func main() {
 		}
 	}()
 
-	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"))
+	// The worker only writes, so it has no use for the replica.
+	store, err := storage.NewPostgresStore(os.Getenv("DATABASE_URL"), "")
 	if err != nil {
 		logger.Error("failed to connect to postgres", "err", err)
 		os.Exit(1)
