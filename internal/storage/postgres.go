@@ -22,29 +22,84 @@ var ErrNotFound = errors.New("task not found")
 const maxConns = 10
 
 type PostgresStore struct {
-	db *sql.DB
+	db     *sql.DB // primary: every write, and Get
+	readDB *sql.DB // replica: List and Count; nil when there is no replica
 }
 
-func NewPostgresStore(url string) (*PostgresStore, error) {
-	db, err := sql.Open("postgres", url)
+// NewPostgresStore connects to the primary at url. readURL is the replica;
+// pass "" to send every read to the primary.
+func NewPostgresStore(url, readURL string) (*PostgresStore, error) {
+	db, err := openPool(url)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	store := &PostgresStore{db: db}
+
+	if readURL != "" {
+		// No Ping here: a missing replica must not stop the app from
+		// starting. Reads fall back to the primary until it answers.
+		readDB, err := openPool(readURL)
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("open postgres replica: %w", err)
+		}
+		store.readDB = readDB
+	}
+	return store, nil
+}
+
+// openPool creates a connection pool. It doesn't connect yet; the first
+// query does.
+func openPool(url string) (*sql.DB, error) {
+	db, err := sql.Open("postgres", url)
+	if err != nil {
+		return nil, err
 	}
 	db.SetMaxOpenConns(maxConns)
 	// Keep the connections open between requests instead of reconnecting;
 	// the default keeps only 2 idle.
 	db.SetMaxIdleConns(maxConns)
-
-	err = db.Ping()
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("ping postgres: %w", err)
-	}
-	return &PostgresStore{db: db}, nil
+	return db, nil
 }
 
 func (p *PostgresStore) Close() error {
+	if p.readDB != nil {
+		_ = p.readDB.Close()
+	}
 	return p.db.Close()
+}
+
+// reader picks where List and Count read from: the replica if it has caught
+// up with the primary, otherwise the primary.
+func (p *PostgresStore) reader() *sql.DB {
+	// Part 1: no replica configured (worker, tests).
+	if p.readDB == nil {
+		return p.db
+	}
+
+	// Part 2: how far is the primary? Every write that has finished is at or
+	// before this position.
+	var primaryLSN string
+	err := p.db.QueryRow(`SELECT pg_current_wal_lsn()::text`).Scan(&primaryLSN)
+	if err != nil {
+		return p.db
+	}
+
+	// Part 3: has the replica replayed that far? NULL (not a replica) counts
+	// as no.
+	var caughtUp bool
+	err = p.readDB.QueryRow(
+		`SELECT COALESCE(pg_last_wal_replay_lsn() >= $1::pg_lsn, false)`,
+		primaryLSN,
+	).Scan(&caughtUp)
+	if err != nil || !caughtUp {
+		return p.db
+	}
+	return p.readDB
 }
 
 // likePattern turns a search query into an ILIKE pattern that matches it
@@ -57,7 +112,7 @@ func likePattern(query string) string {
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func (p *PostgresStore) List(query string, limit, offset int) ([]task.Task, error) {
-	rows, err := p.db.Query(`SELECT uuid, title, description, COALESCE(recommended_steps, '') FROM tasks WHERE title ILIKE $1 OR description ILIKE $1 ORDER BY id LIMIT $2 OFFSET $3`, likePattern(query), limit, offset)
+	rows, err := p.reader().Query(`SELECT uuid, title, description, COALESCE(recommended_steps, '') FROM tasks WHERE title ILIKE $1 OR description ILIKE $1 ORDER BY id LIMIT $2 OFFSET $3`, likePattern(query), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -135,7 +190,7 @@ func checkFound(res sql.Result, id uuid.UUID) error {
 
 func (p *PostgresStore) Count(query string) (int, error) {
 	var c int
-	err := p.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE title ILIKE $1 OR description ILIKE $1`, likePattern(query)).
+	err := p.reader().QueryRow(`SELECT COUNT(*) FROM tasks WHERE title ILIKE $1 OR description ILIKE $1`, likePattern(query)).
 		Scan(&c)
 	if err != nil {
 		return 0, fmt.Errorf("count tasks: %w", err)
