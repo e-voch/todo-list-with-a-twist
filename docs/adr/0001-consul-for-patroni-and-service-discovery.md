@@ -83,6 +83,7 @@ Bad:
 Still to decide during the work:
 
 - Gossip encryption and ACLs: set up now, or deferred like Nomad ACLs.
+  Decided in ADR 2: neither, for now.
 - Whether HAProxy reads Consul through DNS (`server-template`) or a template.
 - How containers resolve `.consul` names, if anything other than HAProxy
   needs them.

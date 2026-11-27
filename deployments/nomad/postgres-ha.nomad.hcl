@@ -1,6 +1,7 @@
 # Postgres with automatic failover. Each member runs Patroni (image built from
 # deployments/postgres-ha/Dockerfile), which starts Postgres and competes for
-# the leader key in etcd (etcd.nomad.hcl). The member holding the key is the
+# the leader key in Consul (deployments/core/consul.hcl). The member holding
+# the key is the
 # primary; the other streams from it. If the primary dies, its key expires and
 # the replica promotes itself.
 #
@@ -34,7 +35,7 @@ job "postgres-ha" {
       attachment_mode = "file-system"
     }
 
-    # Dynamic ports: members find each other through etcd, where each one
+    # Dynamic ports: members find each other through Consul, where each one
     # publishes its own address, not through fixed ports.
     network {
       port "db" { to = 5432 }
@@ -76,7 +77,7 @@ job "postgres-ha" {
       kill_timeout = "30s"
 
       config {
-        image    = "ghcr.io/e-voch/postgres-ha:test"
+        image    = "ghcr.io/e-voch/postgres-ha:consul"
         ports    = ["db", "api"]
         shm_size = 134217728 # 128 MB, same as the old postgres job
         args     = ["/local/patroni.yml"]
@@ -93,26 +94,29 @@ job "postgres-ha" {
         # let a template change restart both members at the same moment.
         splay = "30s"
         data  = <<EOF
-scope: todo # the cluster's name; its keys live under /service/todo in etcd
+# The cluster's name. Its keys live under service/postgres-ha/ in Consul's KV
+# store, and it is also the name Patroni registers in Consul's catalog.
+scope: postgres-ha
 name: {{ env "node.unique.name" }} # this member's name, unique per server
 
-etcd3:
-  hosts:
-    - 10.0.0.3:2379
-    - 10.0.0.4:2379
-    - 10.0.0.5:2379
+consul:
+  # The Consul agent on this server; 127.0.0.1 would be the container itself.
+  host: {{ env "attr.unique.network.ip-address" }}:8500
+  # Register this member as service postgres-ha, tagged primary or replica,
+  # with a health check on its REST API.
+  register_service: true
 
 restapi:
   listen: 0.0.0.0:8008
   connect_address: {{ env "NOMAD_ADDR_api" }}
 
-# Read only when the cluster is first created, then stored in etcd and shared
+# Read only when the cluster is first created, then stored in Consul and shared
 # by every member. Change them later with `patronictl edit-config`.
 bootstrap:
   dcs:
     ttl: 30           # the leader key expires 30 s after its last renewal
     loop_wait: 10     # each member checks in every 10 s
-    retry_timeout: 10 # how long to keep retrying etcd before giving up
+    retry_timeout: 10 # how long to keep retrying Consul before giving up
     # A replica further behind than 1 MB won't promote itself.
     maximum_lag_on_failover: 1048576
     # Commits wait for the replica; non-strict, so writes go on without one.

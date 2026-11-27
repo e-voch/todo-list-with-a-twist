@@ -4,10 +4,11 @@
 FROM postgres:18
 
 # The postgres image already has the PostgreSQL apt repository, which ships
-# Patroni. Patroni's etcd support (etcd3 included) needs python3-etcd, which
-# apt treats as one of several choices, so name it explicitly.
+# Patroni. Patroni keeps its leader key in Consul (docs/adr/0001), which
+# needs python3-consul; apt treats it as one of several choices for the
+# store, so name it explicitly.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends patroni python3-etcd \
+    && apt-get install -y --no-install-recommends patroni python3-consul \
     && rm -rf /var/lib/apt/lists/*
 
 # Postgres refuses to run as root. The data volume must be owned by this user

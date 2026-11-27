@@ -39,6 +39,25 @@ write_files:
         }
       }
 
+      # The Consul agent on this node (below).
+      consul {
+        address = "127.0.0.1:8500"
+      }
+
+  # Consul client agent: joins the Consul servers on the core servers
+  # (deployments/core/consul.hcl), so services on this node can be registered
+  # and looked up.
+  - path: /etc/consul.d/consul.hcl
+    content: |
+      datacenter = "helsinki"
+      data_dir   = "/opt/consul"
+
+      server     = false
+      retry_join = ["10.0.0.3", "10.0.0.4", "10.0.0.5"]
+
+      bind_addr   = "{{ GetPrivateInterfaces | include \"network\" \"10.0.0.0/16\" | attr \"address\" }}"
+      client_addr = "127.0.0.1 {{ GetPrivateInterfaces | include \"network\" \"10.0.0.0/16\" | attr \"address\" }}"
+
 runcmd:
   - apt-get remove -y hc-utils
   - systemctl restart systemd-networkd systemd-resolved
@@ -70,6 +89,10 @@ runcmd:
   - apt-get update
   - apt-get install -y -o Dpkg::Options::=--force-confold nomad=2.1.1-1
 
+  # Installing Consul; force-confold keeps the config written above. Consul
+  # starts before Nomad, so Nomad finds it at once.
+  - apt-get install -y -o Dpkg::Options::=--force-confold consul=2.1.0-1
+  - systemctl enable --now consul
 
   #start nomad
   - mkdir -p /opt/nomad/data/alloc

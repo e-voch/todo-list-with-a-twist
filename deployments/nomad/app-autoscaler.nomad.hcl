@@ -144,6 +144,8 @@ scaling "app_nodes" {
 
       # The cloud-init file, read from the repo when you run this job (run it
       # from the repo root). Base64 so its template braces survive this template.
+      # It must hold no secrets: the autoscaler logs this whole target config,
+      # user data included, every minute, and the logs go to OpenSearch.
       hcloud_user_data             = "${base64encode(file("deployments/hetzner/app-node.cloud-init.yaml"))}"
       hcloud_b64_user_data_encoded = "true"
     }
