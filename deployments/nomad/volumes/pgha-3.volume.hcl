@@ -1,7 +1,7 @@
 # Dynamic host volume for one Patroni member's data (postgres-ha.nomad.hcl).
 # There are three volumes but only two members: the empty one is a spare, so
 # when a server dies Nomad can start its member on the spare server, where
-# Patroni clones the data from the leader. Like etcddata, each volume names
+# Patroni clones the data from the leader. Each volume names
 # its server. One of three files (-1, -2, -3), identical apart from the name.
 # Cluster only; create once with `make nomad-volumes`.
 name      = "pgha"
